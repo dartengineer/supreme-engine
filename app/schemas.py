@@ -73,15 +73,19 @@ class EducationOut(EducationBase):
     id: int
 
 
-# ---------- Other sections (read-only for now; you'll add create/update) ----------
-
-
-class SkillOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
+# ---------- Skills ----------
+class SkillBase(BaseModel):
     name: str
     category: str | None = None
     level: str | None = None
+
+
+class SkillOut(SkillBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+
+
+# ---------- Other sections (read-only for now; you'll add create/update) ----------
 
 
 class ProjectOut(BaseModel):

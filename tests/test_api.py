@@ -138,3 +138,15 @@ def test_education_crud(client):
 
 def test_cannot_touch_another_users_education(client):
     check_blocked_for_other_user(client, "/profile/education", EDUCATION)
+
+
+# ---------- Skills ----------
+SKILL = {"name": "Figma", "category": "Design tools", "level": "Intermediate"}
+
+
+def test_skill_crud(client):
+    check_crud(client, "/profile/skills", SKILL, {"level": "Expert"}, "skills")
+
+
+def test_cannot_touch_another_users_skill(client):
+    check_blocked_for_other_user(client, "/profile/skills", SKILL)

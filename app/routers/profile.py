@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Education, Experience, Profile, User
+from app.models import Education, Experience, Profile, Skill, User
 from app.schemas import (
     EducationBase,
     EducationOut,
@@ -14,6 +14,8 @@ from app.schemas import (
     FullProfileOut,
     ProfileBase,
     ProfileOut,
+    SkillBase,
+    SkillOut,
 )
 from app.security import get_current_user
 
@@ -124,4 +126,37 @@ def update_education(edu_id: int, data: EducationBase, profile: Profile = Depend
 def delete_education(edu_id: int, profile: Profile = Depends(get_own_profile), db: Session = Depends(get_db)):
     edu = _get_owned(Education, edu_id, profile, db, "Education")
     db.delete(edu)
+    db.commit()
+
+
+# ---------- Skills ----------
+@router.post("/skills", response_model=SkillOut, status_code=status.HTTP_201_CREATED)
+def add_skill(data: SkillBase, profile: Profile = Depends(get_own_profile), db: Session = Depends(get_db)):
+    skill = Skill(profile_id=profile.id, **data.model_dump())
+    db.add(skill)
+    db.commit()
+    db.refresh(skill)
+    return skill
+
+
+@router.get("/skills", response_model=list[SkillOut])
+def list_skills(profile: Profile = Depends(get_own_profile)):
+    # Grouped by category, then A-Z. Skills with no category go first.
+    return sorted(profile.skills, key=lambda s: ((s.category or "").lower(), s.name.lower()))
+
+
+@router.put("/skills/{skill_id}", response_model=SkillOut)
+def update_skill(skill_id: int, data: SkillBase, profile: Profile = Depends(get_own_profile), db: Session = Depends(get_db)):
+    skill = _get_owned(Skill, skill_id, profile, db, "Skill")
+    for field, value in data.model_dump().items():
+        setattr(skill, field, value)
+    db.commit()
+    db.refresh(skill)
+    return skill
+
+
+@router.delete("/skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_skill(skill_id: int, profile: Profile = Depends(get_own_profile), db: Session = Depends(get_db)):
+    skill = _get_owned(Skill, skill_id, profile, db, "Skill")
+    db.delete(skill)
     db.commit()
