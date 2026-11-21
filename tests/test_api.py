@@ -150,3 +150,21 @@ def test_skill_crud(client):
 
 def test_cannot_touch_another_users_skill(client):
     check_blocked_for_other_user(client, "/profile/skills", SKILL)
+
+
+# ---------- Projects ----------
+PROJECT = {
+    "name": "Brand refresh for a local bakery",
+    "role": "Lead designer",
+    "url": "https://example.com/bakery",
+    "technologies": "Figma, Illustrator",
+    "start_date": "2024-03-01",
+}
+
+
+def test_project_crud(client):
+    check_crud(client, "/profile/projects", PROJECT, {"end_date": "2024-05-31"}, "projects")
+
+
+def test_cannot_touch_another_users_project(client):
+    check_blocked_for_other_user(client, "/profile/projects", PROJECT)

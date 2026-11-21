@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Education, Experience, Profile, Skill, User
+from app.models import Education, Experience, Profile, Project, Skill, User
 from app.schemas import (
     EducationBase,
     EducationOut,
@@ -14,6 +14,8 @@ from app.schemas import (
     FullProfileOut,
     ProfileBase,
     ProfileOut,
+    ProjectBase,
+    ProjectOut,
     SkillBase,
     SkillOut,
 )
@@ -159,4 +161,36 @@ def update_skill(skill_id: int, data: SkillBase, profile: Profile = Depends(get_
 def delete_skill(skill_id: int, profile: Profile = Depends(get_own_profile), db: Session = Depends(get_db)):
     skill = _get_owned(Skill, skill_id, profile, db, "Skill")
     db.delete(skill)
+    db.commit()
+
+
+# ---------- Projects ----------
+@router.post("/projects", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
+def add_project(data: ProjectBase, profile: Profile = Depends(get_own_profile), db: Session = Depends(get_db)):
+    project = Project(profile_id=profile.id, **data.model_dump())
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+@router.get("/projects", response_model=list[ProjectOut])
+def list_projects(profile: Profile = Depends(get_own_profile)):
+    return _newest_first(profile.projects, "start_date")
+
+
+@router.put("/projects/{project_id}", response_model=ProjectOut)
+def update_project(project_id: int, data: ProjectBase, profile: Profile = Depends(get_own_profile), db: Session = Depends(get_db)):
+    project = _get_owned(Project, project_id, profile, db, "Project")
+    for field, value in data.model_dump().items():
+        setattr(project, field, value)
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+@router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project(project_id: int, profile: Profile = Depends(get_own_profile), db: Session = Depends(get_db)):
+    project = _get_owned(Project, project_id, profile, db, "Project")
+    db.delete(project)
     db.commit()

@@ -85,19 +85,23 @@ class SkillOut(SkillBase):
     id: int
 
 
-# ---------- Other sections (read-only for now; you'll add create/update) ----------
-
-
-class ProjectOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
+# ---------- Projects ----------
+class ProjectBase(BaseModel):
     name: str
     role: str | None = None
     url: str | None = None
-    technologies: str | None = None
+    technologies: str | None = None  # comma-separated for now
     description: str | None = None
     start_date: date | None = None
     end_date: date | None = None
+
+
+class ProjectOut(ProjectBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+
+
+# ---------- Other sections (read-only for now; you'll add create/update) ----------
 
 
 class CertificationOut(BaseModel):
