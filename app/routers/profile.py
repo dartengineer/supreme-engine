@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Education, Experience, Profile, Project, Skill, User
+from app.models import Certification, Education, Experience, Profile, Project, Skill, User
 from app.schemas import (
+    CertificationBase,
+    CertificationOut,
     EducationBase,
     EducationOut,
     ExperienceBase,
@@ -193,4 +195,36 @@ def update_project(project_id: int, data: ProjectBase, profile: Profile = Depend
 def delete_project(project_id: int, profile: Profile = Depends(get_own_profile), db: Session = Depends(get_db)):
     project = _get_owned(Project, project_id, profile, db, "Project")
     db.delete(project)
+    db.commit()
+
+
+# ---------- Certifications ----------
+@router.post("/certifications", response_model=CertificationOut, status_code=status.HTTP_201_CREATED)
+def add_certification(data: CertificationBase, profile: Profile = Depends(get_own_profile), db: Session = Depends(get_db)):
+    cert = Certification(profile_id=profile.id, **data.model_dump())
+    db.add(cert)
+    db.commit()
+    db.refresh(cert)
+    return cert
+
+
+@router.get("/certifications", response_model=list[CertificationOut])
+def list_certifications(profile: Profile = Depends(get_own_profile)):
+    return _newest_first(profile.certifications, "issue_date")
+
+
+@router.put("/certifications/{cert_id}", response_model=CertificationOut)
+def update_certification(cert_id: int, data: CertificationBase, profile: Profile = Depends(get_own_profile), db: Session = Depends(get_db)):
+    cert = _get_owned(Certification, cert_id, profile, db, "Certification")
+    for field, value in data.model_dump().items():
+        setattr(cert, field, value)
+    db.commit()
+    db.refresh(cert)
+    return cert
+
+
+@router.delete("/certifications/{cert_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_certification(cert_id: int, profile: Profile = Depends(get_own_profile), db: Session = Depends(get_db)):
+    cert = _get_owned(Certification, cert_id, profile, db, "Certification")
+    db.delete(cert)
     db.commit()

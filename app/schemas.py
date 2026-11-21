@@ -101,12 +101,8 @@ class ProjectOut(ProjectBase):
     id: int
 
 
-# ---------- Other sections (read-only for now; you'll add create/update) ----------
-
-
-class CertificationOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
+# ---------- Certifications ----------
+class CertificationBase(BaseModel):
     name: str
     issuer: str | None = None
     issue_date: date | None = None
@@ -114,6 +110,12 @@ class CertificationOut(BaseModel):
     credential_url: str | None = None
 
 
+class CertificationOut(CertificationBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+
+
+# ---------- Full profile ----------
 class FullProfileOut(ProfileOut):
     """Everything about the user in one object. This is what the AI will read in Phase 1."""
     experiences: list[ExperienceOut] = []

@@ -168,3 +168,20 @@ def test_project_crud(client):
 
 def test_cannot_touch_another_users_project(client):
     check_blocked_for_other_user(client, "/profile/projects", PROJECT)
+
+
+# ---------- Certifications ----------
+CERTIFICATION = {
+    "name": "Google UX Design Certificate",
+    "issuer": "Google",
+    "issue_date": "2023-06-15",
+    "credential_url": "https://example.com/cert/123",
+}
+
+
+def test_certification_crud(client):
+    check_crud(client, "/profile/certifications", CERTIFICATION, {"expiry_date": "2026-06-15"}, "certifications")
+
+
+def test_cannot_touch_another_users_certification(client):
+    check_blocked_for_other_user(client, "/profile/certifications", CERTIFICATION)
