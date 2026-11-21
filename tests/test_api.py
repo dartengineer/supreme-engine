@@ -189,6 +189,7 @@ def test_cannot_touch_another_users_certification(client):
 
 # ---------- Job applications & CV generation ----------
 # These tests NEVER call the real AI: generate_cv is replaced with a fake that returns "# Test CV".
+from app.schemas import JobRequirements  # noqa: E402
 from app.services import ai  # noqa: E402
 
 
@@ -205,11 +206,38 @@ def fake_ai(monkeypatch):
     """Replaces generate_cv with a fake and records what it was called with."""
     calls = []
 
-    def fake_generate_cv(profile_json, job_title, job_description):
-        calls.append({"profile_json": profile_json, "job_title": job_title, "job_description": job_description})
+    def fake_generate_cv(profile_json, job_title, job_description, requirements=None):
+        calls.append({
+            "profile_json": profile_json,
+            "job_title": job_title,
+            "job_description": job_description,
+            "requirements": requirements,
+        })
         return "# Test CV"
 
     monkeypatch.setattr(ai, "generate_cv", fake_generate_cv)
+    return calls
+
+
+FAKE_REQUIREMENTS = JobRequirements(
+    required_skills=["Canva", "Brand design"],
+    nice_to_have_skills=["Photoshop"],
+    keywords=["brand assets", "social media"],
+    seniority="entry-level",
+    key_responsibilities=["Design social media graphics"],
+)
+
+
+@pytest.fixture()
+def fake_extract(monkeypatch):
+    """Replaces extract_requirements with a fake that returns FAKE_REQUIREMENTS."""
+    calls = []
+
+    def fake_extract_requirements(job_title, job_description):
+        calls.append({"job_title": job_title, "job_description": job_description})
+        return FAKE_REQUIREMENTS
+
+    monkeypatch.setattr(ai, "extract_requirements", fake_extract_requirements)
     return calls
 
 
@@ -276,3 +304,63 @@ def test_ai_failure_returns_502_and_saves_nothing(client, monkeypatch):
     assert r.status_code == 502
     assert "busy" in r.json()["detail"]
     assert client.get(f"/applications/{app_id}/documents", headers=h).json() == []
+
+
+# ---------- Job description analysis (v2) ----------
+def test_analyze_saves_requirements(client, fake_extract):
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    assert client.get(f"/applications/{app_id}", headers=h).json()["requirements"] is None
+
+    r = client.post(f"/applications/{app_id}/analyze", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json() == FAKE_REQUIREMENTS.model_dump()
+    assert fake_extract == [{"job_title": "Graphic Designer", "job_description": "Design brand assets."}]
+
+    # Saved on the application, so it's still there when we read it back.
+    assert client.get(f"/applications/{app_id}", headers=h).json()["requirements"] == FAKE_REQUIREMENTS.model_dump()
+
+
+def test_generate_cv_uses_saved_requirements(client, fake_ai, fake_extract):
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    client.post(f"/applications/{app_id}/analyze", headers=h)
+
+    assert client.post(f"/applications/{app_id}/generate-cv", headers=h).status_code == 201
+    assert fake_ai[0]["requirements"] == FAKE_REQUIREMENTS
+
+
+def test_generate_cv_works_without_requirements(client, fake_ai):
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+
+    r = client.post(f"/applications/{app_id}/generate-cv", headers=h)
+    assert r.status_code == 201, r.text
+    assert fake_ai[0]["requirements"] is None
+
+
+def test_analyze_needs_a_job_description(client, fake_extract):
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json={"job_title": "Graphic Designer"}, headers=h).json()["id"]
+    assert client.post(f"/applications/{app_id}/analyze", headers=h).status_code == 400
+    assert fake_extract == []  # no AI call wasted
+
+
+def test_cannot_analyze_another_users_application(client, fake_extract):
+    a = user_with_profile(client, "a@example.com", "User A")
+    app_id = client.post("/applications", json=APPLICATION, headers=a).json()["id"]
+
+    b = user_with_profile(client, "b@example.com", "User B")
+    assert client.post(f"/applications/{app_id}/analyze", headers=b).status_code == 404
+    assert fake_extract == []
+
+
+def test_analyze_failure_returns_502_and_saves_nothing(client, monkeypatch):
+    def failing_extract(*args):
+        raise ai.AIError("The AI service is busy. Try again shortly.")
+
+    monkeypatch.setattr(ai, "extract_requirements", failing_extract)
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    assert client.post(f"/applications/{app_id}/analyze", headers=h).status_code == 502
+    assert client.get(f"/applications/{app_id}", headers=h).json()["requirements"] is None

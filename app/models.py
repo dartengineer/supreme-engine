@@ -6,7 +6,7 @@ and each application has many generated documents (CVs and cover letters).
 """
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -133,6 +133,7 @@ class JobApplication(TimestampMixin, Base):
     job_title: Mapped[str] = mapped_column(String(200))
     company: Mapped[str | None] = mapped_column(String(200))
     job_description: Mapped[str | None] = mapped_column(Text)
+    requirements: Mapped[dict | None] = mapped_column(JSON)  # filled by POST /applications/{id}/analyze
     status: Mapped[str] = mapped_column(String(50), default="draft")  # draft, applied, interview, offer, rejected
 
     user: Mapped[User] = relationship(back_populates="job_applications")

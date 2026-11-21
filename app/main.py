@@ -1,22 +1,14 @@
-"""App entry point. Run with:  uvicorn app.main:app --reload"""
-from contextlib import asynccontextmanager
+"""App entry point. Run with:  uvicorn app.main:app --reload
 
+The database structure is managed by Alembic. After pulling changes that touch models.py, run:
+    alembic upgrade head
+"""
 from fastapi import FastAPI
 
-from app import models  # noqa: F401  (imports the tables so create_all can see them)
 from app.config import settings
-from app.database import Base, engine
 from app.routers import applications, auth, profile
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Creates any missing tables on startup. We'll replace this with Alembic migrations later.
-    Base.metadata.create_all(bind=engine)
-    yield
-
-
-app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app = FastAPI(title=settings.app_name)
 app.include_router(auth.router)
 app.include_router(profile.router)
 app.include_router(applications.router)

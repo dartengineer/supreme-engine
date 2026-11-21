@@ -125,6 +125,15 @@ class FullProfileOut(ProfileOut):
     certifications: list[CertificationOut] = []
 
 
+# ---------- Job requirements (extracted from a job ad by the AI) ----------
+class JobRequirements(BaseModel):
+    required_skills: list[str] = Field(description="Skills, tools or qualifications the ad says are required.")
+    nice_to_have_skills: list[str] = Field(description="Skills the ad lists as preferred, a plus, or desirable.")
+    keywords: list[str] = Field(description="Important terms and phrases from the ad, in the ad's own wording.")
+    seniority: str = Field(description="Seniority level, e.g. 'entry-level', 'mid-level', 'senior', or 'not stated'.")
+    key_responsibilities: list[str] = Field(description="The main duties of the role, each as a short phrase.")
+
+
 # ---------- Job applications ----------
 class JobApplicationCreate(BaseModel):
     job_title: str = Field(min_length=1, max_length=200)
@@ -136,6 +145,7 @@ class JobApplicationOut(JobApplicationCreate):
     model_config = ConfigDict(from_attributes=True)
     id: int
     status: str
+    requirements: JobRequirements | None = None  # empty until POST /applications/{id}/analyze
     created_at: datetime
 
 

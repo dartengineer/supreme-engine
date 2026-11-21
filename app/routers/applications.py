@@ -6,7 +6,13 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import GeneratedDocument, JobApplication, User
-from app.schemas import FullProfileOut, GeneratedDocumentOut, JobApplicationCreate, JobApplicationOut
+from app.schemas import (
+    FullProfileOut,
+    GeneratedDocumentOut,
+    JobApplicationCreate,
+    JobApplicationOut,
+    JobRequirements,
+)
 from app.security import get_current_user
 from app.services import ai  # called as ai.generate_cv(...) so tests can swap it for a fake
 
@@ -40,16 +46,36 @@ def get_application(app_id: int, user: User = Depends(get_current_user), db: Ses
     return _get_own_application(app_id, user, db)
 
 
+@router.post("/{app_id}/analyze", response_model=JobRequirements)
+def analyze_application(app_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Reads the job description, extracts its requirements, and saves them on the application."""
+    application = _get_own_application(app_id, user, db)
+    if not (application.job_description or "").strip():
+        raise HTTPException(status_code=400, detail="Add a job description to this application before analysing it")
+    try:
+        requirements = ai.extract_requirements(application.job_title, application.job_description)
+    except ai.AIError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+
+    application.requirements = requirements.model_dump()
+    db.commit()
+    return requirements
+
+
 @router.post("/{app_id}/generate-cv", response_model=GeneratedDocumentOut, status_code=status.HTTP_201_CREATED)
 def generate_cv(app_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Writes a CV tailored to this job from your profile, and saves it as the next version."""
+    """Writes a CV tailored to this job from your profile, and saves it as the next version.
+
+    Uses the requirements from POST /applications/{id}/analyze when they exist; works without them too.
+    """
     application = _get_own_application(app_id, user, db)
     if user.profile is None:
         raise HTTPException(status_code=404, detail="Create your profile first (PUT /profile)")
 
     profile_json = FullProfileOut.model_validate(user.profile).model_dump_json()
+    requirements = JobRequirements.model_validate(application.requirements) if application.requirements else None
     try:
-        content = ai.generate_cv(profile_json, application.job_title, application.job_description)
+        content = ai.generate_cv(profile_json, application.job_title, application.job_description, requirements)
     except ai.AIError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
