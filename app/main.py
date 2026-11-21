@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from app import models  # noqa: F401  (imports the tables so create_all can see them)
 from app.config import settings
 from app.database import Base, engine
-from app.routers import auth, profile
+from app.routers import applications, auth, profile
 
 
 @asynccontextmanager
@@ -19,6 +19,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(profile.router)
+app.include_router(applications.router)
 
 
 @app.get("/", tags=["health"])

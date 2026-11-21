@@ -185,3 +185,94 @@ def test_certification_crud(client):
 
 def test_cannot_touch_another_users_certification(client):
     check_blocked_for_other_user(client, "/profile/certifications", CERTIFICATION)
+
+
+# ---------- Job applications & CV generation ----------
+# These tests NEVER call the real AI: generate_cv is replaced with a fake that returns "# Test CV".
+from app.services import ai  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def block_real_ai(monkeypatch):
+    """Safety net for every test: if anything tries to build a real AI client, the test fails."""
+    def no_real_calls():
+        raise AssertionError("A test tried to call the real AI API. Monkeypatch ai.generate_cv instead.")
+    monkeypatch.setattr(ai, "_client", no_real_calls)
+
+
+@pytest.fixture()
+def fake_ai(monkeypatch):
+    """Replaces generate_cv with a fake and records what it was called with."""
+    calls = []
+
+    def fake_generate_cv(profile_json, job_title, job_description):
+        calls.append({"profile_json": profile_json, "job_title": job_title, "job_description": job_description})
+        return "# Test CV"
+
+    monkeypatch.setattr(ai, "generate_cv", fake_generate_cv)
+    return calls
+
+
+APPLICATION = {"job_title": "Graphic Designer", "company": "Acme", "job_description": "Design brand assets."}
+
+
+def test_application_create_list_get(client):
+    h = user_with_profile(client)
+    r = client.post("/applications", json=APPLICATION, headers=h)
+    assert r.status_code == 201, r.text
+    app_id = r.json()["id"]
+    assert r.json()["status"] == "draft"
+    assert [a["id"] for a in client.get("/applications", headers=h).json()] == [app_id]
+    assert client.get(f"/applications/{app_id}", headers=h).json()["job_title"] == "Graphic Designer"
+
+
+def test_generate_cv_twice_creates_versions_1_and_2(client, fake_ai):
+    h = user_with_profile(client, name="Ada Obi")
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+
+    first = client.post(f"/applications/{app_id}/generate-cv", headers=h)
+    second = client.post(f"/applications/{app_id}/generate-cv", headers=h)
+    assert first.status_code == 201, first.text
+    assert (first.json()["version"], second.json()["version"]) == (1, 2)
+    assert first.json()["content"] == "# Test CV"
+    assert first.json()["doc_type"] == "cv"
+    assert first.json()["model_used"]
+
+    # The AI received the full profile and the job details.
+    assert "Ada Obi" in fake_ai[0]["profile_json"]
+    assert fake_ai[0]["job_title"] == "Graphic Designer"
+    assert fake_ai[0]["job_description"] == "Design brand assets."
+
+    history = client.get(f"/applications/{app_id}/documents", headers=h).json()
+    assert [d["version"] for d in history] == [2, 1]
+
+
+def test_cannot_use_another_users_application(client, fake_ai):
+    a = user_with_profile(client, "a@example.com", "User A")
+    app_id = client.post("/applications", json=APPLICATION, headers=a).json()["id"]
+
+    b = user_with_profile(client, "b@example.com", "User B")
+    assert client.get("/applications", headers=b).json() == []
+    assert client.get(f"/applications/{app_id}", headers=b).status_code == 404
+    assert client.post(f"/applications/{app_id}/generate-cv", headers=b).status_code == 404
+    assert client.get(f"/applications/{app_id}/documents", headers=b).status_code == 404
+    assert fake_ai == []  # the AI was never called for user B
+
+
+def test_generate_cv_needs_a_profile(client, fake_ai):
+    h = signup_and_login(client)  # logged in, but no profile yet
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    assert client.post(f"/applications/{app_id}/generate-cv", headers=h).status_code == 404
+
+
+def test_ai_failure_returns_502_and_saves_nothing(client, monkeypatch):
+    def failing_generate_cv(*args):
+        raise ai.AIError("The AI service is busy or out of credit. Try again shortly.")
+
+    monkeypatch.setattr(ai, "generate_cv", failing_generate_cv)
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    r = client.post(f"/applications/{app_id}/generate-cv", headers=h)
+    assert r.status_code == 502
+    assert "busy" in r.json()["detail"]
+    assert client.get(f"/applications/{app_id}/documents", headers=h).json() == []

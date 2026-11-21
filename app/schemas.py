@@ -1,5 +1,5 @@
 """Pydantic schemas: the shape of data going in and out of the API."""
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -123,3 +123,29 @@ class FullProfileOut(ProfileOut):
     skills: list[SkillOut] = []
     projects: list[ProjectOut] = []
     certifications: list[CertificationOut] = []
+
+
+# ---------- Job applications ----------
+class JobApplicationCreate(BaseModel):
+    job_title: str = Field(min_length=1, max_length=200)
+    company: str | None = Field(default=None, max_length=200)
+    job_description: str | None = None  # paste the job ad here; the AI tailors the CV to it
+
+
+class JobApplicationOut(JobApplicationCreate):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    status: str
+    created_at: datetime
+
+
+# ---------- Generated documents ----------
+class GeneratedDocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    job_application_id: int
+    doc_type: str
+    version: int
+    content: str
+    model_used: str | None = None
+    created_at: datetime

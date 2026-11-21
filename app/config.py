@@ -10,5 +10,9 @@ class Settings(BaseSettings):
     secret_key: str = "change-me"  # used to sign login tokens; set a long random value in .env
     access_token_expire_minutes: int = 60 * 24  # 1 day
 
+    # AI (Claude). Put ANTHROPIC_API_KEY in .env, never in code.
+    anthropic_api_key: str | None = None
+    ai_model: str = "claude-haiku-5-5"  # cheap and fast while developing
+
 
 settings = Settings()
