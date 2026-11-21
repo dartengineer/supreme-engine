@@ -57,7 +57,9 @@ def generate_cv(profile_json: str, job_title: str, job_description: str | None) 
     except anthropic.RateLimitError:
         raise AIError("The AI service is busy or out of credit. Try again shortly.")
     except anthropic.APIStatusError as e:
-        raise AIError(f"The AI service returned an error ({e.status_code}).")
+        # Pass on Anthropic's own explanation (e.g. "Your credit balance is too low...").
+        reason = e.body.get("error", {}).get("message") if isinstance(e.body, dict) else None
+        raise AIError(f"The AI service returned an error ({e.status_code}): {reason or 'no details given'}")
     except anthropic.APIConnectionError:
         raise AIError("Couldn't reach the AI service. Check your internet connection.")
 
