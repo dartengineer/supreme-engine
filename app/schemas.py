@@ -57,10 +57,8 @@ class ExperienceOut(ExperienceBase):
     id: int
 
 
-# ---------- Other sections (read-only for now; you'll add create/update) ----------
-class EducationOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
+# ---------- Education ----------
+class EducationBase(BaseModel):
     institution: str
     qualification: str
     field_of_study: str | None = None
@@ -68,6 +66,14 @@ class EducationOut(BaseModel):
     end_date: date | None = None
     grade: str | None = None
     description: str | None = None
+
+
+class EducationOut(EducationBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+
+
+# ---------- Other sections (read-only for now; you'll add create/update) ----------
 
 
 class SkillOut(BaseModel):
