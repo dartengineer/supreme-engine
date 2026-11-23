@@ -17,22 +17,36 @@ Truthfulness (most important)
 numbers, tools, skills, grades, certifications, achievements) must come from the profile.
 2. Never invent or guess. If a detail is missing, leave it out. Do not add numbers, tools or results \
 that the profile doesn't state, and don't link a tool to a task unless the profile does.
+3. Use only the bullets provided. When jobs come with "selected_bullets", those are the only bullets \
+you may use for them; do not add bullets from elsewhere. Keep the jobs in "experiences" in the order given \
+(most relevant first). List every job in "other_experience" under an "Other Experience" heading, one line \
+each (job title, company, dates), with no bullets.
+4. A general skill is not experience with a specific tool or platform. For example, "Customer Relationship \
+Management" as a skill does not mean the person has used CRM software such as Salesforce or Zendesk. \
+Only mention a tool, platform or system if the profile names it.
+5. Never describe the person with a job title they haven't held. If they were a "Technical Support Intern", \
+don't call them a "Technical Support Specialist", even if that's the job they're applying for. \
+Describe what they did instead.
 
 Tailoring
-3. Choose the experience, projects, skills and certifications most relevant to this job and put them first. \
+6. Choose the experience, projects, skills and certifications most relevant to this job and put them first. \
 Leave out items that add nothing for this role.
-4. Rephrase bullet points to highlight experience that matches the required skills and key responsibilities. \
-You may reword, merge, shorten and reorder bullets, as long as the meaning stays true.
-5. Use the job's own terminology and keywords where they truthfully describe what the person did. \
+7. Rewrite bullet points so each one leads with what this job cares about, using the job's own wording where \
+it truthfully describes the work (e.g. "email correspondence and scheduling" -> "managed email and calendars" \
+for a role that asks for calendar management). Keep every number, tool, employer and fact exactly as given, \
+and never add a duty or result the original bullet doesn't state. You may merge, shorten and reorder bullets. \
+Only copy a bullet word for word if it already fits the job well.
+8. Use the job's own terminology and keywords where they truthfully describe what the person did. \
 Never use a keyword to claim experience the profile doesn't show.
-6. In the Skills section, keep only skills that are relevant to this job and that appear in the profile.
-7. Write a 2-4 sentence professional summary aimed at this role, built only from facts in the profile.
+9. In the Skills section, keep only skills that are relevant to this job and that appear in the profile.
+10. Write a 2-4 sentence professional summary aimed at this role, built only from facts in the profile, \
+in the third person without pronouns (e.g. "Resolved 25-35 requests weekly", not "I resolve...").
 
 Format
-8. Output a clean CV in Markdown: the candidate's name as a level-1 heading, contact details on one line, \
-then sections with level-2 headings (Summary, Experience, Projects, Education, Skills, Certifications). \
-Skip any section with nothing to put in it.
-9. Output only the CV itself: no preface, no notes to the user, no code fences."""
+11. Output a clean CV in Markdown: the candidate's name as a level-1 heading, contact details on one line, \
+then sections with level-2 headings (Summary, Experience, Other Experience, Projects, Education, Skills, \
+Certifications). Skip any section with nothing to put in it.
+12. Output only the CV itself: no preface, no notes to the user, no code fences."""
 
 EXTRACT_SYSTEM_PROMPT = """You read job ads and extract what the employer is asking for.
 

@@ -1,16 +1,63 @@
-"""API tests. They use a temporary in-memory database, so your real data is never touched.
-Run with:  pytest -v
+"""API tests. They run against the cv_generator_test database in the Docker PostgreSQL (with pgvector),
+which is wiped before every test, so your real data is never touched.
+Run with:  pytest -v      (set TEST_DATABASE_URL to use a different test database)
 """
 import os
+import pathlib
+import re
+import zlib
 
-os.environ["DATABASE_URL"] = "sqlite://"  # must be set before the app is imported
+from dotenv import dotenv_values
+from sqlalchemy.engine import make_url
+
+
+def _test_database_url() -> str:
+    """Same server and login as your app's DATABASE_URL, but the cv_generator_test database."""
+    if os.environ.get("TEST_DATABASE_URL"):
+        url = make_url(os.environ["TEST_DATABASE_URL"])
+    else:
+        env_file = pathlib.Path(__file__).resolve().parent.parent / ".env"
+        url = make_url(dotenv_values(env_file).get("DATABASE_URL") or os.environ["DATABASE_URL"])
+        url = url.set(database="cv_generator_test")
+    # Every test drops all tables, so refuse anything that isn't clearly a test database.
+    if not (url.database or "").endswith("_test"):
+        raise RuntimeError(f"Refusing to run tests against database {url.database!r}: its name must end in '_test'.")
+    return url.render_as_string(hide_password=False)
+
+
+os.environ["DATABASE_URL"] = _test_database_url()  # must be set before the app is imported
 os.environ["SECRET_KEY"] = "test-secret-key-that-is-at-least-32-bytes-long"
+os.environ["WARM_UP_EMBEDDINGS"] = "false"  # tests use fake_embed, never the real model
 
-import pytest
-from fastapi.testclient import TestClient
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
-from app.database import Base, engine
-from app.main import app
+from app.database import Base, engine  # noqa: E402
+from app.main import app  # noqa: E402
+from app.services import embeddings  # noqa: E402
+
+
+def fake_embed(texts):
+    """Fast, deterministic stand-in for the real model: a bag of words hashed into 384 slots.
+
+    Texts that share words get similar vectors, so retrieval still behaves sensibly in tests.
+    """
+    vectors = []
+    for text in texts:
+        v = [0.0] * embeddings.DIMENSIONS
+        for word in re.findall(r"[a-z0-9]+", text.lower()):
+            v[zlib.crc32(word.encode()) % embeddings.DIMENSIONS] += 1.0
+        if not any(v):
+            v[0] = 1.0
+        norm = sum(x * x for x in v) ** 0.5
+        vectors.append([x / norm for x in v])
+    return vectors
+
+
+@pytest.fixture(autouse=True)
+def no_real_embedding_model(monkeypatch):
+    """Every test uses fake_embed, so the real model is never loaded."""
+    monkeypatch.setattr(embeddings, "embed", fake_embed)
 
 
 @pytest.fixture()
@@ -364,3 +411,111 @@ def test_analyze_failure_returns_502_and_saves_nothing(client, monkeypatch):
     app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
     assert client.post(f"/applications/{app_id}/analyze", headers=h).status_code == 502
     assert client.get(f"/applications/{app_id}", headers=h).json()["requirements"] is None
+
+
+# ---------- Embeddings & retrieval (v3) ----------
+from sqlalchemy import select  # noqa: E402
+
+from app.database import SessionLocal  # noqa: E402
+from app.models import ProfileChunk  # noqa: E402
+
+
+def chunk_texts(source_type=None):
+    with SessionLocal() as db:
+        query = select(ProfileChunk.text)
+        if source_type:
+            query = query.where(ProfileChunk.source_type == source_type)
+        return sorted(db.scalars(query).all())
+
+
+DESIGNER_JOB = {
+    "job_title": "Graphic Designer",
+    "company": "Acme",
+    "start_date": "2021-01-01",
+    "description": "- Designed social media graphics in Canva\n- Answered customer phone calls",
+}
+
+
+def test_chunks_follow_profile_changes(client):
+    h = user_with_profile(client)
+    exp_id = client.post("/profile/experiences", json=DESIGNER_JOB, headers=h).json()["id"]
+    # Each bullet becomes its own chunk.
+    assert chunk_texts("experience") == ["Answered customer phone calls", "Designed social media graphics in Canva"]
+
+    client.put(f"/profile/experiences/{exp_id}", json={**DESIGNER_JOB, "description": "- Built brand guidelines"}, headers=h)
+    assert chunk_texts("experience") == ["Built brand guidelines"]
+
+    client.post("/profile/skills", json={"name": "Canva", "category": "Design tools"}, headers=h)
+    assert chunk_texts("skill") == ["Canva (Design tools)"]
+
+    client.delete(f"/profile/experiences/{exp_id}", headers=h)
+    assert chunk_texts("experience") == []
+
+
+def test_matches_pick_relevant_bullets_with_scores(client, fake_extract):
+    h = user_with_profile(client)
+    client.post("/profile/experiences", json=DESIGNER_JOB, headers=h)
+    client.post("/profile/skills", json={"name": "Canva", "category": "Design tools"}, headers=h)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    client.post(f"/applications/{app_id}/analyze", headers=h)
+
+    r = client.get(f"/applications/{app_id}/matches", headers=h)
+    assert r.status_code == 200, r.text
+    matches = r.json()
+    texts = [m["text"] for m in matches]
+    assert "Designed social media graphics in Canva" in texts
+    assert "Canva (Design tools)" in texts
+    assert "Answered customer phone calls" not in texts  # unrelated to every requirement, so filtered out
+    scores = [m["score"] for m in matches]
+    assert scores == sorted(scores, reverse=True) and all(0 < s <= 1 for s in scores)
+    assert all(m["matched_requirement"] for m in matches)
+
+
+def test_generate_cv_sends_only_selected_bullets(client, fake_ai, fake_extract):
+    import json
+
+    h = user_with_profile(client, name="Ada Obi")
+    client.put("/profile", json={"full_name": "Ada Obi", "summary": "Expert in Kubernetes"}, headers=h)
+    client.post("/profile/experiences", json=DESIGNER_JOB, headers=h)
+    client.post("/profile/experiences", json={
+        "job_title": "Warehouse Assistant", "company": "BoxCo", "start_date": "2023-05-01",
+        "description": "- Stacked pallets in the warehouse",
+    }, headers=h)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    client.post(f"/applications/{app_id}/analyze", headers=h)
+
+    assert client.post(f"/applications/{app_id}/generate-cv", headers=h).status_code == 201
+    sent = json.loads(fake_ai[0]["profile_json"])
+    assert sent["full_name"] == "Ada Obi"
+
+    # The relevant job comes with only its matching bullet.
+    assert len(sent["experiences"]) == 1
+    job = sent["experiences"][0]
+    assert (job["job_title"], job["company"], job["start_date"]) == ("Graphic Designer", "Acme", "2021-01-01")
+    assert job["selected_bullets"] == ["Designed social media graphics in Canva"]
+
+    # The unrelated (and more recent) job is still listed, but compactly and with no bullets.
+    assert sent["other_experience"] == [{
+        "job_title": "Warehouse Assistant", "company": "BoxCo", "location": None,
+        "start_date": "2023-05-01", "end_date": None,
+    }]
+
+    # Nothing unselected leaks through: no other bullets, and no free-text summary.
+    assert "phone calls" not in fake_ai[0]["profile_json"]
+    assert "pallets" not in fake_ai[0]["profile_json"]
+    assert "summary" not in sent and "Kubernetes" not in fake_ai[0]["profile_json"]
+
+
+def test_matches_need_analysis_first(client):
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    assert client.get(f"/applications/{app_id}/matches", headers=h).status_code == 400
+
+
+def test_cannot_see_another_users_matches(client, fake_extract):
+    a = user_with_profile(client, "a@example.com", "User A")
+    app_id = client.post("/applications", json=APPLICATION, headers=a).json()["id"]
+    client.post(f"/applications/{app_id}/analyze", headers=a)
+
+    b = user_with_profile(client, "b@example.com", "User B")
+    assert client.get(f"/applications/{app_id}/matches", headers=b).status_code == 404

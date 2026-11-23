@@ -14,5 +14,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     ai_model: str = "claude-haiku-5-5"  # cheap and fast while developing
 
+    # Load the embedding model in the background when the server starts, so the first request doesn't wait.
+    warm_up_embeddings: bool = True
+
 
 settings = Settings()

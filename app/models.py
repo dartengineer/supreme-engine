@@ -6,10 +6,12 @@ and each application has many generated documents (CVs and cover letters).
 """
 from datetime import date, datetime
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.services.embeddings import DIMENSIONS
 
 
 class TimestampMixin:
@@ -49,6 +51,24 @@ class Profile(TimestampMixin, Base):
     skills: Mapped[list["Skill"]] = relationship(back_populates="profile", cascade="all, delete-orphan")
     projects: Mapped[list["Project"]] = relationship(back_populates="profile", cascade="all, delete-orphan")
     certifications: Mapped[list["Certification"]] = relationship(back_populates="profile", cascade="all, delete-orphan")
+    chunks: Mapped[list["ProfileChunk"]] = relationship(back_populates="profile", cascade="all, delete-orphan")
+
+
+class ProfileChunk(Base):
+    """One small, searchable piece of a profile (an experience bullet, a project, a skill or a certification).
+
+    Rebuilt from scratch by reindex_profile() whenever the profile changes, so never edit these by hand.
+    """
+    __tablename__ = "profile_chunks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), index=True)
+    source_type: Mapped[str] = mapped_column(String(30))  # experience, project, skill or certification
+    source_id: Mapped[int] = mapped_column(Integer)  # id of the row it came from
+    text: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float]] = mapped_column(Vector(DIMENSIONS))
+
+    profile: Mapped[Profile] = relationship(back_populates="chunks")
 
 
 class Experience(TimestampMixin, Base):

@@ -1,4 +1,5 @@
 """Profile endpoints and its sections. Every route works only on the logged-in user's own data."""
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,8 +23,10 @@ from app.schemas import (
     SkillOut,
 )
 from app.security import get_current_user
+from app.services import embeddings
 
 router = APIRouter(prefix="/profile", tags=["profile"])
+logger = logging.getLogger(__name__)
 
 
 def get_own_profile(user: User = Depends(get_current_user)) -> Profile:
@@ -41,6 +44,16 @@ def _get_owned(model, item_id: int, profile: Profile, db: Session, label: str):
     if item is None or item.profile_id != profile.id:
         raise HTTPException(status_code=404, detail=f"{label} not found")
     return item
+
+
+def _reindex(profile: Profile, db: Session) -> None:
+    """Rebuilds the profile's search chunks after a section changes. A failure is logged, never shown to the user:
+    the change itself is already saved, and chunks are rebuilt again on the next change or when matching."""
+    try:
+        embeddings.reindex_profile(profile, db)
+    except Exception:
+        db.rollback()
+        logger.exception("Couldn't rebuild chunks for profile %s", profile.id)
 
 
 def _newest_first(items, date_field: str):
@@ -75,6 +88,7 @@ def add_experience(data: ExperienceBase, profile: Profile = Depends(get_own_prof
     exp = Experience(profile_id=profile.id, **data.model_dump())
     db.add(exp)
     db.commit()
+    _reindex(profile, db)
     db.refresh(exp)
     return exp
 
@@ -90,6 +104,7 @@ def update_experience(exp_id: int, data: ExperienceBase, profile: Profile = Depe
     for field, value in data.model_dump().items():
         setattr(exp, field, value)
     db.commit()
+    _reindex(profile, db)
     db.refresh(exp)
     return exp
 
@@ -99,6 +114,7 @@ def delete_experience(exp_id: int, profile: Profile = Depends(get_own_profile), 
     exp = _get_owned(Experience, exp_id, profile, db, "Experience")
     db.delete(exp)
     db.commit()
+    _reindex(profile, db)
 
 
 # ---------- Education ----------
@@ -107,6 +123,7 @@ def add_education(data: EducationBase, profile: Profile = Depends(get_own_profil
     edu = Education(profile_id=profile.id, **data.model_dump())
     db.add(edu)
     db.commit()
+    _reindex(profile, db)
     db.refresh(edu)
     return edu
 
@@ -122,6 +139,7 @@ def update_education(edu_id: int, data: EducationBase, profile: Profile = Depend
     for field, value in data.model_dump().items():
         setattr(edu, field, value)
     db.commit()
+    _reindex(profile, db)
     db.refresh(edu)
     return edu
 
@@ -131,6 +149,7 @@ def delete_education(edu_id: int, profile: Profile = Depends(get_own_profile), d
     edu = _get_owned(Education, edu_id, profile, db, "Education")
     db.delete(edu)
     db.commit()
+    _reindex(profile, db)
 
 
 # ---------- Skills ----------
@@ -139,6 +158,7 @@ def add_skill(data: SkillBase, profile: Profile = Depends(get_own_profile), db: 
     skill = Skill(profile_id=profile.id, **data.model_dump())
     db.add(skill)
     db.commit()
+    _reindex(profile, db)
     db.refresh(skill)
     return skill
 
@@ -155,6 +175,7 @@ def update_skill(skill_id: int, data: SkillBase, profile: Profile = Depends(get_
     for field, value in data.model_dump().items():
         setattr(skill, field, value)
     db.commit()
+    _reindex(profile, db)
     db.refresh(skill)
     return skill
 
@@ -164,6 +185,7 @@ def delete_skill(skill_id: int, profile: Profile = Depends(get_own_profile), db:
     skill = _get_owned(Skill, skill_id, profile, db, "Skill")
     db.delete(skill)
     db.commit()
+    _reindex(profile, db)
 
 
 # ---------- Projects ----------
@@ -172,6 +194,7 @@ def add_project(data: ProjectBase, profile: Profile = Depends(get_own_profile), 
     project = Project(profile_id=profile.id, **data.model_dump())
     db.add(project)
     db.commit()
+    _reindex(profile, db)
     db.refresh(project)
     return project
 
@@ -187,6 +210,7 @@ def update_project(project_id: int, data: ProjectBase, profile: Profile = Depend
     for field, value in data.model_dump().items():
         setattr(project, field, value)
     db.commit()
+    _reindex(profile, db)
     db.refresh(project)
     return project
 
@@ -196,6 +220,7 @@ def delete_project(project_id: int, profile: Profile = Depends(get_own_profile),
     project = _get_owned(Project, project_id, profile, db, "Project")
     db.delete(project)
     db.commit()
+    _reindex(profile, db)
 
 
 # ---------- Certifications ----------
@@ -204,6 +229,7 @@ def add_certification(data: CertificationBase, profile: Profile = Depends(get_ow
     cert = Certification(profile_id=profile.id, **data.model_dump())
     db.add(cert)
     db.commit()
+    _reindex(profile, db)
     db.refresh(cert)
     return cert
 
@@ -219,6 +245,7 @@ def update_certification(cert_id: int, data: CertificationBase, profile: Profile
     for field, value in data.model_dump().items():
         setattr(cert, field, value)
     db.commit()
+    _reindex(profile, db)
     db.refresh(cert)
     return cert
 
@@ -228,3 +255,4 @@ def delete_certification(cert_id: int, profile: Profile = Depends(get_own_profil
     cert = _get_owned(Certification, cert_id, profile, db, "Certification")
     db.delete(cert)
     db.commit()
+    _reindex(profile, db)

@@ -134,6 +134,16 @@ class JobRequirements(BaseModel):
     key_responsibilities: list[str] = Field(description="The main duties of the role, each as a short phrase.")
 
 
+class MatchOut(BaseModel):
+    """A profile chunk picked for a job, and why (GET /applications/{id}/matches)."""
+    chunk_id: int
+    source_type: str  # experience, project, skill or certification
+    source_id: int
+    text: str
+    score: float  # cosine similarity: 1 = same meaning, 0 = unrelated
+    matched_requirement: str
+
+
 # ---------- Job applications ----------
 class JobApplicationCreate(BaseModel):
     job_title: str = Field(min_length=1, max_length=200)

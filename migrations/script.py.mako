@@ -8,6 +8,7 @@ Create Date: ${create_date}
 from typing import Sequence, Union
 
 from alembic import op
+import pgvector.sqlalchemy  # noqa: F401  (lets migrations use the Vector column type)
 import sqlalchemy as sa
 ${imports if imports else ""}
 
