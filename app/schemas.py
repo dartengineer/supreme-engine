@@ -169,6 +169,25 @@ class GapAssessment(BaseModel):
         description="Nice-to-have skills the profile shows no evidence for.")
 
 
+class RequirementMatch(BaseModel):
+    requirement: str
+    kind: Literal["required", "nice_to_have"]
+    label: Literal["strong", "partial", "gap"]
+    similarity: float | None = None  # cosine similarity of the closest profile chunk (1 = same meaning)
+    evidence: str | None = None  # the closest profile bullet/skill/project/certification
+    evidence_type: str | None = None
+
+
+class MatchReport(BaseModel):
+    """How well the profile fits the job (GET /applications/{id}/match). The score is calculated in code."""
+    score: int  # 0-100: required items weigh 2, nice-to-haves 1; strong = full credit, partial = half, gap = none
+    strong: int
+    partial: int
+    gaps: int
+    matched: list[RequirementMatch]  # strong and partial, each with the bullet that matched it
+    missing: list[RequirementMatch]  # the gaps
+
+
 class MatchOut(BaseModel):
     """A profile chunk picked for a job, and why (GET /applications/{id}/matches)."""
     chunk_id: int
@@ -205,6 +224,7 @@ class JobApplicationOut(JobApplicationCreate):
     id: int
     status: str
     requirements: JobRequirements | None = None  # empty until POST /applications/{id}/analyze
+    match_score: int | None = None  # 0-100, from GET /applications/{id}/match
     document_counts: dict[str, int] = {}  # e.g. {"cv": 3, "cover_letter": 1}
     last_generated_at: datetime | None = None  # when the latest document was generated
     created_at: datetime

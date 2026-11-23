@@ -157,6 +157,7 @@ class JobApplication(TimestampMixin, Base):
     # Saved result of the gap check (which requirements the profile doesn't show), so every cover letter for
     # this application mentions the same gaps. Recomputed only when the profile or the requirements change.
     gap_check: Mapped[dict | None] = mapped_column(JSON)
+    match_score: Mapped[int | None] = mapped_column(Integer)  # 0-100, saved by GET /applications/{id}/match
     # Optional, written by the user: why they want this job ("I use their app"). The only allowed source of
     # personal motivation in a cover letter, because the profile can't supply it.
     motivation_notes: Mapped[str | None] = mapped_column(Text)

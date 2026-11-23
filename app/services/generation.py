@@ -82,13 +82,18 @@ def _fingerprint(text: str) -> str:
 
 
 def letter_gaps(db: Session, application: JobApplication, context: GenerationContext) -> list[str]:
-    """The gaps a cover letter may mention, from the saved gap check when it's still valid.
-
-    The gap check (one AI call) runs once per application and is saved, so every letter mentions the same
-    gaps. It reruns only when the profile or the requirements have changed since it was saved.
-    """
+    """The gaps a cover letter may mention (at most two, in ad order), from the saved gap check."""
     if context.requirements is None:
         return []
+    return ai.choose_gaps(gap_assessment(db, application, context), context.requirements)
+
+
+def gap_assessment(db: Session, application: JobApplication, context: GenerationContext) -> GapAssessment:
+    """Which requirements the profile shows no evidence for, from the saved gap check when it's still valid.
+
+    The gap check (one AI call) runs once per application and is saved, so every letter and match score uses
+    the same result. It reruns only when the profile or the requirements have changed since it was saved.
+    """
     profile_data = json.loads(context.full_profile_json)
     profile_data.pop("total_experience", None)  # changes every month on its own; not a profile edit
     for value in profile_data.values():  # list order from the database isn't fixed; sort so the same profile
@@ -104,4 +109,4 @@ def letter_gaps(db: Session, application: JobApplication, context: GenerationCon
         assessment = ai.assess_gaps(context.full_profile_json, context.requirements)
         application.gap_check = {"key": key, "assessment": assessment.model_dump()}
         db.commit()
-    return ai.choose_gaps(assessment, context.requirements)
+    return assessment

@@ -1023,3 +1023,121 @@ def test_code_checks_catch_known_failures(case):
 @pytest.mark.parametrize("case", [c for c in EVAL_CASES if c["kind"] == "honest"], ids=lambda c: c["id"])
 def test_code_checks_leave_honest_lines_alone(case):
     assert _eval_code_flags(case) == []
+
+
+# ---------- Match score (v6) ----------
+from app.schemas import RequirementMatch  # noqa: E402
+from app.services import matching  # noqa: E402
+
+# Vectors chosen so the similarities are known exactly: Canva<->Canva = 1.0, "Brand design"<->design bullet = 0.5,
+# Photoshop<->anything = 0.0. (Padded to 384 numbers; every vector has length 1.)
+_DIM = embeddings.DIMENSIONS
+
+
+def _vec(*xs):
+    return list(xs) + [0.0] * (_DIM - len(xs))
+
+
+KNOWN_VECTORS = {
+    "Canva": _vec(1, 0, 0, 0),
+    "Graphic Designer: Designed brand assets": _vec(0, 1, 0, 0),
+    "Brand design": _vec(0, 0.5, 0.75 ** 0.5, 0),
+    "Photoshop": _vec(0, 0, 0, 1),
+}
+
+
+def known_embed(texts):
+    return [KNOWN_VECTORS.get(t, _vec(0, 0, 1, 0)) for t in texts]
+
+
+@pytest.fixture()
+def match_setup(client, fake_extract, monkeypatch):
+    """A profile with a Canva skill and one design bullet, analysed against FAKE_REQUIREMENTS
+    (required: Canva, Brand design; nice to have: Photoshop)."""
+    monkeypatch.setattr(embeddings, "embed", known_embed)
+    h = user_with_profile(client)
+    client.post("/profile/skills", json={"name": "Canva"}, headers=h)
+    client.post("/profile/experiences", json={"job_title": "Graphic Designer", "company": "Acme",
+                                              "start_date": "2021-01-01", "description": "- Designed brand assets"},
+                headers=h)
+    assessments = []
+    monkeypatch.setattr(ai, "assess_gaps", lambda profile, reqs: assessments.pop(0))
+
+    def new_application(assessment, title="Graphic Designer"):
+        app_id = client.post("/applications", json={**APPLICATION, "job_title": title}, headers=h).json()["id"]
+        client.post(f"/applications/{app_id}/analyze", headers=h)
+        assessments.append(assessment)
+        return app_id
+
+    return h, new_application
+
+
+def test_match_labels_strong_partial_and_gap_with_evidence(client, match_setup):
+    h, new_application = match_setup
+    app_id = new_application(GapAssessment(missing_required=[], missing_nice_to_have=[Missing(index=1, label="Photoshop")]))
+
+    r = client.get(f"/applications/{app_id}/match", headers=h)
+    assert r.status_code == 200, r.text
+    report = r.json()
+    matched = {m["requirement"]: m for m in report["matched"]}
+    assert matched["Canva"]["label"] == "strong" and matched["Canva"]["similarity"] == 1.0
+    assert matched["Canva"]["evidence"] == "Canva" and matched["Canva"]["evidence_type"] == "skill"
+    assert matched["Brand design"]["label"] == "partial" and matched["Brand design"]["similarity"] == 0.5
+    assert matched["Brand design"]["evidence"] == "Designed brand assets"
+    assert [(m["requirement"], m["label"], m["evidence"]) for m in report["missing"]] == [("Photoshop", "gap", None)]
+    # required x2, nice x1; strong 1, partial 0.5, gap 0  ->  (2*1 + 2*0.5 + 1*0) / 5 = 60
+    assert (report["score"], report["strong"], report["partial"], report["gaps"]) == (60, 1, 1, 1)
+    assert client.get(f"/applications/{app_id}", headers=h).json()["match_score"] == 60  # saved
+
+
+def test_a_gap_wins_over_a_close_embedding(client, match_setup):
+    h, new_application = match_setup
+    # The gap check says "Brand design" is missing, even though a bullet is somewhat similar (0.5).
+    app_id = new_application(GapAssessment(missing_required=[Missing(index=2, label="brand design")],
+                                           missing_nice_to_have=[Missing(index=1, label="Photoshop")]))
+    report = client.get(f"/applications/{app_id}/match", headers=h).json()
+    assert [m["requirement"] for m in report["missing"]] == ["Brand design", "Photoshop"]
+    assert report["score"] == 40  # (2*1 + 2*0 + 1*0) / 5
+
+
+def test_applications_sort_by_best_fit(client, match_setup):
+    h, new_application = match_setup
+    low = new_application(GapAssessment(missing_required=[Missing(index=2, label="x")],
+                                        missing_nice_to_have=[Missing(index=1, label="y")]), "Low fit")
+    high = new_application(GapAssessment(missing_required=[], missing_nice_to_have=[]), "High fit")
+    unscored = client.post("/applications", json={"job_title": "Not scored"}, headers=h).json()["id"]
+    client.get(f"/applications/{low}/match", headers=h)
+    client.get(f"/applications/{high}/match", headers=h)
+
+    by_match = [(a["id"], a["match_score"]) for a in client.get("/applications?sort=match", headers=h).json()]
+    # high: Canva strong (2) + Brand design partial (1) + Photoshop partial, no gap but no close evidence (0.5) = 3.5/5
+    assert by_match == [(high, 70), (low, 40), (unscored, None)]
+    assert client.get("/applications?sort=best", headers=h).status_code == 422
+
+
+def test_match_reuses_the_saved_gap_check(client, match_setup):
+    h, new_application = match_setup
+    app_id = new_application(GapAssessment(missing_required=[], missing_nice_to_have=[]))
+    first = client.get(f"/applications/{app_id}/match", headers=h).json()
+    second = client.get(f"/applications/{app_id}/match", headers=h).json()  # would fail if it called assess_gaps again
+    assert first == second
+
+
+def test_match_needs_analysis_and_ownership(client, match_setup, fake_extract):
+    h, new_application = match_setup
+    unanalysed = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    assert client.get(f"/applications/{unanalysed}/match", headers=h).status_code == 400
+
+    app_id = new_application(GapAssessment(missing_required=[], missing_nice_to_have=[]))
+    other = user_with_profile(client, "b@example.com", "User B")
+    assert client.get(f"/applications/{app_id}/match", headers=other).status_code == 404
+
+
+def test_compute_score_weights():
+    def item(kind, label):
+        return RequirementMatch(requirement="x", kind=kind, label=label)
+
+    assert matching.compute_score([item("required", "strong"), item("nice_to_have", "gap")]) == 67  # 2/3
+    assert matching.compute_score([item("required", "partial")]) == 50
+    assert matching.compute_score([item("nice_to_have", "gap")]) == 0
+    assert matching.compute_score([]) == 0

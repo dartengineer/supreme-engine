@@ -19,9 +19,10 @@ from app.schemas import (
     JobApplicationUpdate,
     JobRequirements,
     MatchOut,
+    MatchReport,
 )
 from app.security import get_current_user
-from app.services import ai, factcheck, generation, retrieval  # called via the module so tests can swap in fakes
+from app.services import ai, factcheck, generation, matching, retrieval  # via the module so tests can swap in fakes
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -101,8 +102,12 @@ def create_application(data: JobApplicationCreate, user: User = Depends(get_curr
 
 
 @router.get("", response_model=list[JobApplicationOut])
-def list_applications(user: User = Depends(get_current_user)):
-    return sorted(user.job_applications, key=lambda a: a.created_at, reverse=True)
+def list_applications(sort: Literal["newest", "match"] = "newest", user: User = Depends(get_current_user)):
+    """Your applications, newest first, or best fit first with ?sort=match (unscored ones go last)."""
+    apps = sorted(user.job_applications, key=lambda a: a.created_at, reverse=True)
+    if sort == "match":
+        apps.sort(key=lambda a: (a.match_score is None, -(a.match_score or 0)))  # stable: ties stay newest first
+    return apps
 
 
 @router.get("/{app_id}", response_model=JobApplicationOut)
@@ -128,6 +133,7 @@ def update_application(app_id: int, data: JobApplicationUpdate, user: User = Dep
     if any(f in changes for f in ("job_title", "job_description")):
         application.requirements = None
         application.gap_check = None
+        application.match_score = None
     db.commit()
     db.refresh(application)
     return application
@@ -161,6 +167,25 @@ def list_matches(app_id: int, user: User = Depends(get_current_user), db: Sessio
         raise HTTPException(status_code=400, detail="Analyse this application first (POST /applications/{id}/analyze)")
     requirements = JobRequirements.model_validate(application.requirements)
     return retrieval.find_matches(db, profile, requirements)
+
+
+@router.get("/{app_id}/match", response_model=MatchReport)
+def match_application(app_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """How well your profile fits this job: a 0-100 score, each matched requirement with the bullet that matched
+    it, and the gaps. The score is calculated in code and saved, so the list can sort by best fit."""
+    application = _get_own_application(app_id, user, db)
+    profile = _require_profile(user)
+    if not application.requirements:
+        raise HTTPException(status_code=400, detail="Analyse this application first (POST /applications/{id}/analyze)")
+    context = generation.build_generation_context(db, profile, application)
+    try:
+        assessment = generation.gap_assessment(db, application, context)
+    except ai.AIError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+    report = matching.build_match(db, profile, context.requirements, assessment)
+    application.match_score = report.score
+    db.commit()
+    return report
 
 
 @router.post("/{app_id}/generate-cv", response_model=GeneratedDocumentOut, status_code=status.HTTP_201_CREATED)
