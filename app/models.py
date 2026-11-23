@@ -7,7 +7,7 @@ and each application has many generated documents (CVs and cover letters).
 from datetime import date, datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -162,10 +162,27 @@ class JobApplication(TimestampMixin, Base):
     user: Mapped[User] = relationship(back_populates="job_applications")
     documents: Mapped[list["GeneratedDocument"]] = relationship(back_populates="job_application", cascade="all, delete-orphan")
 
+    @property
+    def document_counts(self) -> dict[str, int]:
+        """How many documents of each type exist, e.g. {"cv": 3, "cover_letter": 1}."""
+        counts = {"cv": 0, "cover_letter": 0}
+        for d in self.documents:
+            counts[d.doc_type] = counts.get(d.doc_type, 0) + 1
+        return counts
+
+    @property
+    def last_generated_at(self) -> datetime | None:
+        return max((d.created_at for d in self.documents), default=None)
+
 
 class GeneratedDocument(TimestampMixin, Base):
     """Every CV or cover letter the AI generates, kept as history."""
     __tablename__ = "generated_documents"
+    __table_args__ = (
+        # At most one final document per type per application, enforced by the database itself.
+        Index("uq_one_final_per_doc_type", "job_application_id", "doc_type", unique=True,
+              postgresql_where=text("is_final"), sqlite_where=text("is_final")),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     job_application_id: Mapped[int] = mapped_column(ForeignKey("job_applications.id", ondelete="CASCADE"), index=True)
@@ -173,5 +190,6 @@ class GeneratedDocument(TimestampMixin, Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     content: Mapped[str] = mapped_column(Text)  # the generated text/JSON
     model_used: Mapped[str | None] = mapped_column(String(100))
+    is_final: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # the one you'll send
 
     job_application: Mapped[JobApplication] = relationship(back_populates="documents")

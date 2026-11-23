@@ -81,14 +81,16 @@ def get_application(app_id: int, user: User = Depends(get_current_user), db: Ses
 @router.patch("/{app_id}", response_model=JobApplicationOut)
 def update_application(app_id: int, data: JobApplicationUpdate, user: User = Depends(get_current_user),
                        db: Session = Depends(get_db)):
-    """Change some fields of an application, e.g. add motivation notes. Fields you leave out stay as they are.
+    """Change some fields of an application, e.g. its status or motivation notes. Fields you leave out stay as they are.
 
+    Status: draft -> applied -> interview -> offer / rejected (moving back is allowed, to correct mistakes).
     Changing the job title or description clears the saved requirements, since they'd describe the old ad.
     """
     application = _get_own_application(app_id, user, db)
     changes = data.model_dump(exclude_unset=True)
-    if "job_title" in changes and changes["job_title"] is None:
-        raise HTTPException(status_code=422, detail="job_title can't be empty")
+    for required in ("job_title", "status"):
+        if required in changes and changes[required] is None:
+            raise HTTPException(status_code=422, detail=f"{required} can't be empty")
     for field, value in changes.items():
         setattr(application, field, value)
     if any(f in changes for f in ("job_title", "job_description")):

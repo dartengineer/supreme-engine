@@ -1,5 +1,6 @@
 """Pydantic schemas: the shape of data going in and out of the API."""
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -161,12 +162,16 @@ class JobApplicationCreate(BaseModel):
     motivation_notes: str | None = Field(default=None, max_length=1000)
 
 
+ApplicationStatus = Literal["draft", "applied", "interview", "offer", "rejected"]
+
+
 class JobApplicationUpdate(BaseModel):
     """Change any of these fields; leave out the ones you don't want to change."""
     job_title: str | None = Field(default=None, min_length=1, max_length=200)
     company: str | None = Field(default=None, max_length=200)
     job_description: str | None = None
     motivation_notes: str | None = Field(default=None, max_length=1000)
+    status: ApplicationStatus | None = None  # draft -> applied -> interview -> offer / rejected
 
 
 class JobApplicationOut(JobApplicationCreate):
@@ -174,6 +179,8 @@ class JobApplicationOut(JobApplicationCreate):
     id: int
     status: str
     requirements: JobRequirements | None = None  # empty until POST /applications/{id}/analyze
+    document_counts: dict[str, int] = {}  # e.g. {"cv": 3, "cover_letter": 1}
+    last_generated_at: datetime | None = None  # when the latest document was generated
     created_at: datetime
 
 
@@ -186,4 +193,5 @@ class GeneratedDocumentOut(BaseModel):
     version: int
     content: str
     model_used: str | None = None
+    is_final: bool = False  # the version you've chosen to send (one per type per application)
     created_at: datetime

@@ -418,7 +418,7 @@ def test_analyze_failure_returns_502_and_saves_nothing(client, monkeypatch):
 from sqlalchemy import select  # noqa: E402
 
 from app.database import SessionLocal  # noqa: E402
-from app.models import ProfileChunk  # noqa: E402
+from app.models import GeneratedDocument, ProfileChunk  # noqa: E402
 
 
 def chunk_texts(source_type=None):
@@ -716,3 +716,88 @@ def test_cover_letter_without_requirements_skips_gap_check_and_rewrite(monkeypat
     assert "<gaps_to_mention>\n(none)\n</gaps_to_mention>" in calls[0][0]["content"]
     assert "I use their app." in calls[0][0]["content"]
     assert letter.splitlines()[0] == "Dear Hiring Manager,"  # no company known
+
+
+# ---------- History: status, documents, final versions (v5) ----------
+def _app_with_documents(client, h, cvs=2, letters=1):
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    docs = [client.post(f"/applications/{app_id}/generate-cv", headers=h).json() for _ in range(cvs)]
+    docs += [client.post(f"/applications/{app_id}/generate-cover-letter", headers=h).json() for _ in range(letters)]
+    return app_id, docs
+
+
+def test_application_list_shows_status_counts_and_last_generated(client, fake_ai, fake_letter):
+    h = user_with_profile(client)
+    app_id, docs = _app_with_documents(client, h, cvs=2, letters=1)
+    empty_id = client.post("/applications", json={"job_title": "Other"}, headers=h).json()["id"]
+
+    apps = {a["id"]: a for a in client.get("/applications", headers=h).json()}
+    assert apps[app_id]["status"] == "draft"
+    assert apps[app_id]["document_counts"] == {"cv": 2, "cover_letter": 1}
+    assert apps[app_id]["last_generated_at"] == max(d["created_at"] for d in docs)
+    assert apps[empty_id]["document_counts"] == {"cv": 0, "cover_letter": 0}
+    assert apps[empty_id]["last_generated_at"] is None
+
+
+def test_status_moves_through_the_pipeline(client):
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    for status in ("applied", "interview", "offer", "rejected", "applied"):  # moving back is allowed
+        r = client.patch(f"/applications/{app_id}", json={"status": status}, headers=h)
+        assert r.status_code == 200 and r.json()["status"] == status
+    assert client.patch(f"/applications/{app_id}", json={"status": "hired"}, headers=h).status_code == 422
+    assert client.patch(f"/applications/{app_id}", json={"status": None}, headers=h).status_code == 422
+    assert client.get(f"/applications/{app_id}", headers=h).json()["status"] == "applied"
+
+
+def test_get_and_delete_a_document(client, fake_ai, fake_letter):
+    h = user_with_profile(client)
+    app_id, docs = _app_with_documents(client, h, cvs=2, letters=0)
+    first = docs[0]["id"]
+
+    r = client.get(f"/documents/{first}", headers=h)
+    assert r.status_code == 200 and r.json()["content"] == "# Test CV" and r.json()["is_final"] is False
+
+    assert client.delete(f"/documents/{first}", headers=h).status_code == 204
+    assert client.get(f"/documents/{first}", headers=h).status_code == 404
+    assert versions(client, app_id, h) == [("cv", 2)]  # the other version is untouched
+
+
+def test_only_one_final_document_per_type(client, fake_ai, fake_letter):
+    h = user_with_profile(client)
+    app_id, docs = _app_with_documents(client, h, cvs=2, letters=1)
+    cv1, cv2, letter = (d["id"] for d in docs)
+
+    assert client.post(f"/documents/{cv1}/mark-final", headers=h).json()["is_final"] is True
+    assert client.post(f"/documents/{letter}/mark-final", headers=h).json()["is_final"] is True
+    assert client.post(f"/documents/{cv2}/mark-final", headers=h).json()["is_final"] is True
+
+    final = {(d["doc_type"], d["version"]): d["is_final"] for d in client.get(f"/applications/{app_id}/documents", headers=h).json()}
+    assert final == {("cv", 2): True, ("cv", 1): False, ("cover_letter", 1): True}  # cv2 replaced cv1; letter unaffected
+
+    # Marking the same document again changes nothing.
+    assert client.post(f"/documents/{cv2}/mark-final", headers=h).status_code == 200
+
+
+def test_database_rejects_two_final_documents_of_the_same_type(client, fake_ai, fake_letter):
+    from sqlalchemy.exc import IntegrityError
+
+    h = user_with_profile(client)
+    _, docs = _app_with_documents(client, h, cvs=2, letters=0)
+    with SessionLocal() as db:
+        for d in docs:
+            db.get(GeneratedDocument, d["id"]).is_final = True
+        with pytest.raises(IntegrityError):
+            db.commit()
+
+
+def test_cannot_touch_another_users_documents(client, fake_ai, fake_letter):
+    a = user_with_profile(client, "a@example.com", "User A")
+    _, docs = _app_with_documents(client, a, cvs=1, letters=0)
+    doc_id = docs[0]["id"]
+
+    b = user_with_profile(client, "b@example.com", "User B")
+    assert client.get(f"/documents/{doc_id}", headers=b).status_code == 404
+    assert client.post(f"/documents/{doc_id}/mark-final", headers=b).status_code == 404
+    assert client.delete(f"/documents/{doc_id}", headers=b).status_code == 404
+    assert client.get(f"/documents/{doc_id}", headers=a).json()["is_final"] is False  # untouched
