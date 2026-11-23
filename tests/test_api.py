@@ -254,8 +254,9 @@ def fake_ai(monkeypatch):
     """Replaces generate_cv with a fake and records what it was called with."""
     calls = []
 
-    def fake_generate_cv(profile_json, job_title, job_description, requirements=None):
+    def fake_generate_cv(profile_json, job_title, job_description, requirements=None, feedback=None):
         calls.append({
+            "feedback": feedback,
             "profile_json": profile_json,
             "job_title": job_title,
             "job_description": job_description,
@@ -534,8 +535,9 @@ def fake_letter(monkeypatch):
     """Replaces generate_cover_letter with a fake that records what it was given."""
     calls = []
 
-    def fake_generate_cover_letter(context, company, motivation_notes):
-        calls.append({"context": context, "company": company, "motivation_notes": motivation_notes})
+    def fake_generate_cover_letter(context, company, motivation_notes, feedback=None):
+        calls.append({"context": context, "company": company, "motivation_notes": motivation_notes,
+                      "feedback": feedback})
         return "Dear Acme Team,\n\nTest letter.\n\nKind regards,\nAda Obi"
 
     monkeypatch.setattr(ai, "generate_cover_letter", fake_generate_cover_letter)
@@ -801,3 +803,176 @@ def test_cannot_touch_another_users_documents(client, fake_ai, fake_letter):
     assert client.post(f"/documents/{doc_id}/mark-final", headers=b).status_code == 404
     assert client.delete(f"/documents/{doc_id}", headers=b).status_code == 404
     assert client.get(f"/documents/{doc_id}", headers=a).json()["is_final"] is False  # untouched
+
+
+# ---------- Fact-check (v7) ----------
+from app.services import factcheck  # noqa: E402
+from app.schemas import ClaimList, ClaimVerdict, ExtractedClaim  # noqa: E402
+
+real_check_document = factcheck.check_document  # kept before the autouse fixture below replaces it
+
+
+def clean_report(**summary):
+    return {"status": "ok", "checked_at": "2026-01-01T00:00:00+00:00", "flags": [], "claims": [], "error": None,
+            "summary": {"unsupported": 0, "stretch": 0, "code_flags": 0, "claims_checked": 0} | summary}
+
+
+@pytest.fixture(autouse=True)
+def fake_fact_check(monkeypatch):
+    """Every test gets a clean fact-check report unless it sets its own, so no test calls the real judge."""
+    monkeypatch.setattr(factcheck, "check_document", lambda *a, **k: clean_report())
+
+
+FC_PROFILE = {
+    "full_name": "Ada Obi", "headline": None, "phone": None, "location": "Lagos", "linkedin_url": None,
+    "portfolio_url": "https://ada04.github.io/", "summary": None,
+    "experiences": [
+        {"id": 1, "job_title": "Graphic Designer", "company": "Acme Ltd.", "location": "Remote",
+         "start_date": "2021-01-01", "end_date": "2022-06-01",
+         "description": "- Designed 30 social media graphics monthly\n- Answered customer emails"},
+        {"id": 2, "job_title": "Support Intern", "company": "BoxCo", "location": None,
+         "start_date": "2023-01-01", "end_date": None, "description": "- Resolved 20 tickets weekly in Zendesk"},
+    ],
+    "education": [], "projects": [], "certifications": [],
+    "skills": [{"id": 1, "name": "Canva", "category": None, "level": None}],
+}
+
+
+def code_flags(text, job_title="Support Specialist", years=3.0):
+    sources = factcheck.build_sources(FC_PROFILE, job_title, None, None, years)
+    return [f["type"] for f in factcheck.code_checks(text, FC_PROFILE, sources, job_title, years)]
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("Designed 45 social media graphics monthly.", ["number"]),
+    ("Portfolio: https://ada04.github.io/", []),  # numbers inside URLs are ignored
+    ("At Acme Ltd., I designed 30 social media graphics monthly.", []),
+    ("Managed customer accounts in Salesforce.", ["tool"]),
+    ("I have not used Salesforce yet, but I am keen to learn it.", []),  # gap sentences aren't claims
+    ("At Acme Ltd., I designed 30 social media graphics monthly using Canva.", ["tool_attachment"]),
+    ("Proficient in Canva.", []),  # a skill, not attached to a piece of work
+    ("At BoxCo, I resolved 20 tickets weekly in Zendesk.", []),  # the profile attaches Zendesk to BoxCo
+    ("Support Specialist with 3 years of experience.", ["title"]),
+    ("I am applying for the Support Specialist role.", []),
+    ("Over five years of experience in design.", ["years"]),
+    ("Graphic Designer, Acme Ltd., March 2020 – June 2022", ["date"]),
+    ("From January 2021 to June 2022 at Acme Ltd., I answered customer emails.", []),
+    ("Since January 2023, I have worked at BoxCo.", []),
+    ("## Experience\n**Art Director** | Acme Ltd. | Jan 2021 – Jun 2022", ["title"]),
+    ("## Experience\n**Designer** | Globex | Remote", ["employer"]),
+])
+def test_code_checks(text, expected):
+    assert code_flags(text) == expected
+
+
+def test_claim_check_uses_sources_and_skips_easy_cases(monkeypatch):
+    judged = []
+    monkeypatch.setattr(ai, "extract_claims", lambda doc, src: ClaimList(claims=[
+        ExtractedClaim(claim="Designed 30 social media graphics monthly", kind="candidate_fact", source_ids=["E1"]),
+        ExtractedClaim(claim="Worked with cross-functional teams", kind="candidate_fact", source_ids=["E2"]),
+        ExtractedClaim(claim="Led a team of five designers", kind="candidate_fact", source_ids=[]),
+        ExtractedClaim(claim="The role involves brand design", kind="job_fact", source_ids=["A"]),
+        ExtractedClaim(claim="Dear Hiring Manager", kind="other", source_ids=[]),
+    ]))
+
+    def fake_judge(claim, kind, source_text):
+        judged.append((claim, source_text))
+        return ClaimVerdict(verdict="stretch", reason="Adds 'cross-functional'.")
+
+    monkeypatch.setattr(ai, "judge_claim", fake_judge)
+    report = real_check_document("letter text", FC_PROFILE, job_title="Designer", job_description="Brand design.",
+                                 motivation_notes=None, years=3.0)
+
+    verdicts = {c["claim"]: c["verdict"] for c in report["claims"]}
+    assert verdicts == {
+        "Designed 30 social media graphics monthly": "supported",  # word for word in its source: no judge call
+        "Worked with cross-functional teams": "stretch",
+        "Led a team of five designers": "unsupported",  # no source: unsupported without a judge call
+    }
+    assert [c for c, _ in judged] == ["Worked with cross-functional teams"]  # job facts and greetings aren't judged
+    assert "Answered customer emails" in judged[0][1]  # the judge sees the cited source text
+    assert report["summary"] == {"unsupported": 1, "stretch": 1, "code_flags": 0, "claims_checked": 3}
+    assert {f["severity"] for f in report["flags"]} == {"unsupported", "stretch"}
+
+
+def test_claim_check_failure_keeps_code_results(monkeypatch):
+    def broken(*a):
+        raise ai.AIError("The AI service is busy. Try again shortly.")
+
+    monkeypatch.setattr(ai, "extract_claims", broken)
+    report = real_check_document("Managed accounts in Salesforce.", FC_PROFILE, job_title="Designer",
+                                 job_description=None, motivation_notes=None, years=3.0)
+    assert report["status"] == "partial" and "busy" in report["error"]
+    assert [f["type"] for f in report["flags"]] == ["tool"]
+
+
+def _unsupported_report(text="Led a team of five designers"):
+    r = clean_report(unsupported=1)
+    r["flags"] = [{"type": "claim", "severity": "unsupported", "text": text, "source": None, "reason": "No source."}]
+    return r
+
+
+def test_generated_document_comes_with_its_check_report(client, fake_ai):
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    doc = client.post(f"/applications/{app_id}/generate-cv", headers=h).json()
+    assert doc["check_report"]["summary"]["unsupported"] == 0
+    assert doc["check_report"]["regenerated"] is False
+    assert len(fake_ai) == 1 and fake_ai[0]["feedback"] is None
+    assert client.get(f"/documents/{doc['id']}", headers=h).json()["check_report"] == doc["check_report"]
+
+
+def test_unsupported_claims_trigger_one_regeneration_with_feedback(client, fake_ai, monkeypatch):
+    reports = iter([_unsupported_report(), clean_report()])
+    monkeypatch.setattr(factcheck, "check_document", lambda *a, **k: next(reports))
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+
+    doc = client.post(f"/applications/{app_id}/generate-cv", headers=h).json()
+    assert len(fake_ai) == 2
+    assert "Led a team of five designers" in fake_ai[1]["feedback"]  # the flags are fed back
+    assert doc["check_report"]["regenerated"] is True
+    assert doc["check_report"]["summary"]["unsupported"] == 0
+    assert doc["check_report"]["first_attempt"]["summary"]["unsupported"] == 1
+
+
+def test_remaining_problems_are_returned_as_warnings_not_hidden(client, fake_letter, monkeypatch):
+    monkeypatch.setattr(factcheck, "check_document", lambda *a, **k: _unsupported_report())
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+
+    r = client.post(f"/applications/{app_id}/generate-cover-letter", headers=h)
+    assert r.status_code == 201  # still returned...
+    assert len(fake_letter) == 2  # ...after exactly one retry
+    assert r.json()["check_report"]["summary"]["unsupported"] == 1  # with its warnings visible
+    assert r.json()["check_report"]["flags"][0]["text"] == "Led a team of five designers"
+
+
+# ---------- Fact-check evaluation set: code layer (free, no AI calls) ----------
+# The evaluation files contain real profile data, so they're kept out of git (see .gitignore). Where they
+# don't exist (e.g. a fresh clone), these tests are skipped.
+EVAL_DIR = pathlib.Path(__file__).resolve().parent / "eval_cases"
+_EVAL_FILES = [EVAL_DIR / name for name in ("cases.json", "profile.json", "jobs.json")]
+EVAL_CASES = (json.loads((EVAL_DIR / "cases.json").read_text(encoding="utf-8"))["cases"]
+              if all(f.exists() for f in _EVAL_FILES) else [])
+
+
+def _eval_code_flags(case):
+    from types import SimpleNamespace as NS
+    profile = json.loads((EVAL_DIR / "profile.json").read_text(encoding="utf-8"))
+    job = json.loads((EVAL_DIR / "jobs.json").read_text(encoding="utf-8"))[case["job"]]
+    years = years_of_experience([NS(start_date=date.fromisoformat(e["start_date"]),
+                                    end_date=date.fromisoformat(e["end_date"]) if e.get("end_date") else None)
+                                 for e in profile["experiences"]])
+    sources = factcheck.build_sources(profile, job["job_title"], job["job_description"], case.get("motivation_notes"), years)
+    return factcheck.code_checks(case["text"], profile, sources, job["job_title"], years)
+
+
+@pytest.mark.parametrize("case", [c for c in EVAL_CASES if c.get("code_should_flag")], ids=lambda c: c["id"])
+def test_code_checks_catch_known_failures(case):
+    assert _eval_code_flags(case), f"code checks missed: {case['problem']}"
+
+
+@pytest.mark.parametrize("case", [c for c in EVAL_CASES if c["kind"] == "honest"], ids=lambda c: c["id"])
+def test_code_checks_leave_honest_lines_alone(case):
+    assert _eval_code_flags(case) == []

@@ -191,5 +191,7 @@ class GeneratedDocument(TimestampMixin, Base):
     content: Mapped[str] = mapped_column(Text)  # the generated text/JSON
     model_used: Mapped[str | None] = mapped_column(String(100))
     is_final: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # the one you'll send
+    # Fact-check result: every flag with its type, the claim, the source and the reason (see services/factcheck.py).
+    check_report: Mapped[dict | None] = mapped_column(JSON)
 
     job_application: Mapped[JobApplication] = relationship(back_populates="documents")

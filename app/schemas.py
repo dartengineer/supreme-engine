@@ -135,6 +135,26 @@ class JobRequirements(BaseModel):
     key_responsibilities: list[str] = Field(description="The main duties of the role, each as a short phrase.")
 
 
+class ExtractedClaim(BaseModel):
+    claim: str = Field(description="One short, self-contained, checkable statement. Keep any numbers exactly.")
+    kind: Literal["candidate_fact", "job_fact", "gap", "motivation", "other"] = Field(
+        description="candidate_fact: about the candidate's work, results, skills, qualities, education or contact "
+                    "details. job_fact: only about the job or company. gap: something the candidate lacks or wants "
+                    "to learn. motivation: why the candidate wants this job. other: greetings, sign-offs, offers "
+                    "to talk.")
+    source_ids: list[str] = Field(description="IDs of the sources this claim is based on, e.g. ['E3', 'J2']. "
+                                              "Empty if no source fits.")
+
+
+class ClaimList(BaseModel):
+    claims: list[ExtractedClaim]
+
+
+class ClaimVerdict(BaseModel):
+    verdict: Literal["supported", "stretch", "unsupported"]
+    reason: str = Field(description="One sentence: what in the claim is or isn't backed by the source.")
+
+
 class GapAssessment(BaseModel):
     """Requirements the candidate's profile shows no evidence for (used to keep cover letters honest)."""
     missing_required: list[str] = Field(
@@ -194,4 +214,5 @@ class GeneratedDocumentOut(BaseModel):
     content: str
     model_used: str | None = None
     is_final: bool = False  # the version you've chosen to send (one per type per application)
+    check_report: dict | None = None  # fact-check: summary, flags (type, text, source, reason) and judged claims
     created_at: datetime

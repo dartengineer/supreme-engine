@@ -7,7 +7,7 @@ from pydantic import ValidationError
 import re
 
 from app.config import settings
-from app.schemas import GapAssessment, JobRequirements
+from app.schemas import ClaimList, ClaimVerdict, GapAssessment, JobRequirements
 
 CV_SYSTEM_PROMPT = """You write CVs tailored to one specific job.
 
@@ -124,6 +124,46 @@ doesn't make a named tool or industry present, but don't list soft skills the pr
 - Don't list practical conditions the profile can't show (e.g. "reliable internet connection").
 - Use short wording taken from the requirement. Order each list from most to least important for this job."""
 
+CLAIMS_SYSTEM_PROMPT = """You split a generated CV or cover letter into individual claims for fact-checking.
+
+You receive numbered sources (the candidate's profile, the job ad, and sometimes the candidate's motivation notes) \
+and the document. Rules:
+- Cover every statement about the candidate. Split sentences that say several things into separate claims; \
+merge nothing.
+- Keep each claim short and self-contained: replace "there" or "this role" with what it refers to, and keep \
+numbers, frequencies ("daily", "every") and qualifiers ("still building", "cross-functional") exactly as written.
+- For each claim, list the IDs of every source it is based on. If no source backs it, give an empty list. \
+Don't cite a source just because it's on a similar topic.
+- Section headings, the candidate's name and contact line, greetings and sign-offs are kind "other".
+- Statements about what the candidate hasn't done or is keen/eager/willing to learn are kind "gap", not \
+"motivation". Only reasons for wanting this job are "motivation"."""
+
+JUDGE_SYSTEM_PROMPT = """You check one claim from a generated CV or cover letter against its source text.
+
+Answer with exactly one verdict:
+- supported: everything the claim says is stated in, or directly follows from, the source. Rewording, \
+shortening, summarising and combining sources are fine.
+- stretch: mostly backed, but the claim adds or strengthens something the source doesn't state: scope \
+("cross-functional", "every"), frequency ("daily"), method ("tracing a payment through its records"), \
+tools, outcomes, seniority, extra detail or colour, or implied knowledge ("still building my knowledge of X" \
+when the source shows none).
+- unsupported: the claim's main content isn't in the source, or contradicts it.
+
+Special cases:
+- Numbers: if the numbers are the same, changing or dropping hedges such as "approximately", "about" or \
+"around" is fine.
+- Summaries: a statement that just groups or names experience shown in the sources (e.g. "combines customer \
+service, administration and design") is supported.
+- Understatement is not a stretch: saying less than the source (e.g. "basic design" for professional design \
+work) is supported.
+- Motivation claims: the only valid source is the candidate's motivation notes. A plain statement that the \
+role matches experience shown in the sources counts as supported.
+- Gap claims (what the candidate lacks or is keen to learn): supported if the specific named thing (a system, \
+tool, procedure, regulation, industry) is absent from the profile, and the wording doesn't imply knowledge the \
+profile doesn't show. Related general experience does NOT contradict a gap in a specific named thing. \
+"Keen to learn X" about something missing is a gap claim, not motivation.
+Judge only what is written; don't reward plausible guesses."""
+
 EXTRACT_SYSTEM_PROMPT = """You read job ads and extract what the employer is asking for.
 
 Rules:
@@ -198,11 +238,22 @@ def extract_requirements(job_title: str, job_description: str) -> JobRequirement
     return response.parsed_output
 
 
+def _feedback_part(feedback: str | None) -> list[str]:
+    if not feedback:
+        return []
+    return [
+        "<fact_check_feedback>\nA fact-check of your previous draft found these problems. Write the document again "
+        "without them: remove or correct each flagged statement, keep everything else that was accurate, and don't "
+        f"add new claims to make up for what you remove.\n{feedback}\n</fact_check_feedback>"
+    ]
+
+
 def generate_cv(
     profile_json: str,
     job_title: str,
     job_description: str | None,
     requirements: JobRequirements | None = None,
+    feedback: str | None = None,
 ) -> str:
     """Returns a Markdown CV tailored to the job, written only from the profile."""
     parts = [
@@ -212,6 +263,7 @@ def generate_cv(
     ]
     if requirements is not None:
         parts.append(f"<requirements>\n{requirements.model_dump_json(indent=2)}\n</requirements>")
+    parts += _feedback_part(feedback)
     parts.append("Write the tailored CV now.")
     return _complete(CV_SYSTEM_PROMPT, "\n\n".join(parts), "CV")
 
@@ -241,6 +293,43 @@ def assess_gaps(full_profile_json: str, requirements: JobRequirements) -> GapAss
     if response.parsed_output is None:
         raise AIError("The AI didn't return a gap check. Try again.")
     return response.parsed_output
+
+
+def _parse(system: str, user_message: str, output_format, what: str):
+    """One structured-output request; returns the validated object."""
+    with _friendly_errors():
+        try:
+            response = _client().messages.parse(
+                model=settings.ai_model,
+                max_tokens=16000,
+                system=system,
+                messages=[{"role": "user", "content": user_message}],
+                output_format=output_format,
+            )
+        except ValidationError:
+            raise AIError(f"The AI returned the {what} in an unexpected shape. Try again.")
+    _check_finished(response)
+    if response.parsed_output is None:
+        raise AIError(f"The AI didn't return the {what}. Try again.")
+    return response.parsed_output
+
+
+def extract_claims(document: str, sources_text: str) -> ClaimList:
+    """Splits a document into claims, each tagged with the IDs of the sources it came from."""
+    return _parse(CLAIMS_SYSTEM_PROMPT,
+                  f"<sources>\n{sources_text}\n</sources>\n\n<document>\n{document}\n</document>",
+                  ClaimList, "claim list")
+
+
+def judge_claim(claim: str, kind: str, source_text: str) -> ClaimVerdict:
+    """Judges one claim against its source text: supported, stretch or unsupported.
+
+    (Sampling settings such as temperature are rejected by current models, so consistency comes from the
+    structured output with three allowed verdicts and the strict definitions in the prompt.)
+    """
+    return _parse(JUDGE_SYSTEM_PROMPT,
+                  f"<source>\n{source_text or '(no source)'}\n</source>\n\n<claim kind=\"{kind}\">{claim}</claim>",
+                  ClaimVerdict, "verdict")
 
 
 def choose_gaps(assessment: GapAssessment) -> list[str]:
@@ -274,7 +363,8 @@ def letter_body_word_count(letter: str) -> int:
     return len(body.split())
 
 
-def generate_cover_letter(context, company: str | None, motivation_notes: str | None) -> str:
+def generate_cover_letter(context, company: str | None, motivation_notes: str | None,
+                          feedback: str | None = None) -> str:
     """Returns a plain-text cover letter for the job, built from the same context as the CV.
 
     `context` is a GenerationContext. Motivation comes only from `motivation_notes`; without notes the letter
@@ -297,6 +387,7 @@ def generate_cover_letter(context, company: str | None, motivation_notes: str | 
         else "<motivation_notes>(none given: keep the motivation general, as the rules say)</motivation_notes>"
     )
     parts.append(f"<greeting>{letter_greeting(company)}</greeting>")
+    parts += _feedback_part(feedback)
     parts.append("Write the cover letter now.")
 
     messages = [{"role": "user", "content": "\n\n".join(parts)}]

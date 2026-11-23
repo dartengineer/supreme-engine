@@ -1,4 +1,8 @@
-"""Job applications and the documents (CVs, cover letters) generated for them. Users only ever see their own."""
+"""Job applications and the documents (CVs, cover letters) generated for them. Users only ever see their own.
+
+Every generated document is fact-checked against the profile; the report is saved with it (check_report).
+"""
+import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -17,7 +21,7 @@ from app.schemas import (
     MatchOut,
 )
 from app.security import get_current_user
-from app.services import ai, generation, retrieval  # called as ai.generate_cv(...) so tests can swap in fakes
+from app.services import ai, factcheck, generation, retrieval  # called via the module so tests can swap in fakes
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -38,7 +42,34 @@ def _require_profile(user: User):
     return user.profile
 
 
-def _save_document(db: Session, application: JobApplication, doc_type: DocType, content: str) -> GeneratedDocument:
+def _write_checked(context, write) -> tuple[str, dict]:
+    """Writes a document, fact-checks it, and if anything is unsupported writes it once more with the flags fed
+    back. Returns the final text and its check report; remaining problems stay visible in the report."""
+    full_profile = json.loads(context.full_profile_json)
+
+    def check(text: str) -> dict:
+        return factcheck.check_document(text, full_profile, job_title=context.job_title,
+                                        job_description=context.job_description,
+                                        motivation_notes=context.motivation_notes, years=context.years_of_experience)
+
+    try:
+        content = write(None)
+        report = check(content)
+        if factcheck.has_unsupported(report):
+            first = report
+            content = write(factcheck.feedback_text(first))
+            report = check(content)
+            report["regenerated"] = True
+            report["first_attempt"] = {"summary": first["summary"], "flags": first["flags"]}
+        else:
+            report["regenerated"] = False
+    except ai.AIError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+    return content, report
+
+
+def _save_document(db: Session, application: JobApplication, doc_type: DocType, content: str,
+                   check_report: dict | None = None) -> GeneratedDocument:
     """Saves a generated document as the next version *of its type* (CVs and cover letters count separately)."""
     latest = db.scalar(
         select(func.max(GeneratedDocument.version)).where(
@@ -52,6 +83,7 @@ def _save_document(db: Session, application: JobApplication, doc_type: DocType, 
         version=(latest or 0) + 1,
         content=content,
         model_used=settings.ai_model,
+        check_report=check_report,
     )
     db.add(document)
     db.commit()
@@ -139,11 +171,14 @@ def generate_cv(app_id: int, user: User = Depends(get_current_user), db: Session
     """
     application = _get_own_application(app_id, user, db)
     context = generation.build_generation_context(db, _require_profile(user), application)
-    try:
-        content = ai.generate_cv(context.profile_json, context.job_title, context.job_description, context.requirements)
-    except ai.AIError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
-    return _save_document(db, application, "cv", content)
+
+    def write(feedback):
+        extra = {"feedback": feedback} if feedback else {}
+        return ai.generate_cv(context.profile_json, context.job_title, context.job_description, context.requirements,
+                              **extra)
+
+    content, report = _write_checked(context, write)
+    return _save_document(db, application, "cv", content, report)
 
 
 @router.post("/{app_id}/generate-cover-letter", response_model=GeneratedDocumentOut,
@@ -156,11 +191,13 @@ def generate_cover_letter(app_id: int, user: User = Depends(get_current_user), d
     """
     application = _get_own_application(app_id, user, db)
     context = generation.build_generation_context(db, _require_profile(user), application)
-    try:
-        content = ai.generate_cover_letter(context, context.company, context.motivation_notes)
-    except ai.AIError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
-    return _save_document(db, application, "cover_letter", content)
+
+    def write(feedback):
+        extra = {"feedback": feedback} if feedback else {}
+        return ai.generate_cover_letter(context, context.company, context.motivation_notes, **extra)
+
+    content, report = _write_checked(context, write)
+    return _save_document(db, application, "cover_letter", content, report)
 
 
 @router.get("/{app_id}/documents", response_model=list[GeneratedDocumentOut])

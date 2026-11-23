@@ -18,3 +18,6 @@ Thumbs.db
 
 # Generated CVs (contain personal details)
 generated_cvs/
+
+# Fact-checker test set and results: real profile data, kept local only
+tests/eval_cases/
