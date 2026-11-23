@@ -197,5 +197,8 @@ class GeneratedDocument(TimestampMixin, Base):
     is_final: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # the one you'll send
     # Fact-check result: every flag with its type, the claim, the source and the reason (see services/factcheck.py).
     check_report: Mapped[dict | None] = mapped_column(JSON)
+    # The CV as structured data (CVDocument), used for templates and downloads. None for cover letters and
+    # for CVs generated before v8.
+    data: Mapped[dict | None] = mapped_column(JSON)
 
     job_application: Mapped[JobApplication] = relationship(back_populates="documents")

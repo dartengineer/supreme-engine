@@ -7,7 +7,7 @@ from pydantic import ValidationError
 import re
 
 from app.config import settings
-from app.schemas import ClaimList, ClaimVerdict, GapAssessment, JobRequirements
+from app.schemas import ClaimList, ClaimVerdict, CVDraft, GapAssessment, JobRequirements
 
 CV_SYSTEM_PROMPT = """You write CVs tailored to one specific job.
 
@@ -22,9 +22,8 @@ that the profile doesn't state, and don't link a tool to a task unless the profi
 total years of experience, use total_experience.years (rounded down to a whole number) and ignore any \
 other figure in the profile.
 3. Use only the bullets provided. When jobs come with "selected_bullets", those are the only bullets \
-you may use for them; do not add bullets from elsewhere. Keep the jobs in "experiences" in the order given \
-(most relevant first). List every job in "other_experience" under an "Other Experience" heading, one line \
-each (job title, company, dates), with no bullets.
+you may use for them; do not add bullets from elsewhere. Jobs in "experiences" go in "experience", in the \
+order given (most relevant first); jobs in "other_experience" go in "other_experience_refs" (no bullets).
 4. A general skill is not experience with a specific tool or platform. For example, "Customer Relationship \
 Management" as a skill does not mean the person has used CRM software such as Salesforce or Zendesk. \
 Only mention a tool, platform or system if the profile names it.
@@ -48,11 +47,14 @@ this job asks for it. The same goes for certifications.
 10. Write a 2-4 sentence professional summary aimed at this role, built only from facts in the profile, \
 in the third person without pronouns (e.g. "Resolved 25-35 requests weekly", not "I resolve...").
 
-Format
-11. Output a clean CV in Markdown: the candidate's name as a level-1 heading, contact details on one line, \
-then sections with level-2 headings (Summary, Experience, Other Experience, Projects, Education, Skills, \
-Certifications). Skip any section with nothing to put in it.
-12. Output only the CV itself: no preface, no notes to the user, no code fences."""
+Output (JSON)
+11. Refer to jobs, projects, education and certifications only by their "ref" from the profile (e.g. "job3"). \
+Never write employer names, job titles, dates, institutions or certificate names yourself: the app fills them \
+in from the profile. Don't invent refs.
+12. "experience": the jobs to show with bullets, most relevant first, each with its rewritten bullets. \
+"other_experience_refs": jobs to list in one line without bullets. "projects": relevant projects with short \
+bullets (leave empty if none fit). "skills": skill names copied exactly from the profile. \
+"education_refs" and "certification_refs": the ones worth showing for this job."""
 
 COVER_LETTER_SYSTEM_PROMPT = """You write cover letters for one specific job.
 
@@ -254,8 +256,11 @@ def generate_cv(
     job_description: str | None,
     requirements: JobRequirements | None = None,
     feedback: str | None = None,
-) -> str:
-    """Returns a Markdown CV tailored to the job, written only from the profile."""
+) -> CVDraft:
+    """Writes a CV tailored to the job as structured data (summary, chosen jobs with bullets, skills, refs).
+
+    Facts such as employers, titles and dates are filled in later from the profile (services/cv_document.py).
+    """
     parts = [
         f"<profile>\n{profile_json}\n</profile>",
         f"<job>\nJob title: {job_title}\n\nJob description:\n"
@@ -265,7 +270,7 @@ def generate_cv(
         parts.append(f"<requirements>\n{requirements.model_dump_json(indent=2)}\n</requirements>")
     parts += _feedback_part(feedback)
     parts.append("Write the tailored CV now.")
-    return _complete(CV_SYSTEM_PROMPT, "\n\n".join(parts), "CV")
+    return _parse(CV_SYSTEM_PROMPT, "\n\n".join(parts), CVDraft, "CV")
 
 
 LETTER_MIN_WORDS, LETTER_MAX_WORDS = 250, 350

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ cv.name }} – CV</title>
+<style>
+  /* No letter-spacing on names or headings: some ATS parsers read spaced letters as separate words
+     ("S U M M A R Y"). */
+  /* Compact: dense, one-page friendly. Smaller type, tight spacing, inline skills. */
+  @page { size: A4; margin: 12mm 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif; font-size: 9.2pt; line-height: 1.32;
+         color: #202020; margin: 0; }
+  p { margin: 0; }
+  .cv-header { border-bottom: 1.5pt solid #202020; padding-bottom: 4pt; }
+  .name { font-size: 16pt; font-weight: 700; margin: 0 0 2pt; }
+  .contact { font-size: 8.5pt; color: #505050; }
+  h2 { font-size: 9.2pt; font-weight: 700; text-transform: uppercase; margin: 9pt 0 3pt;
+       padding-bottom: 1.5pt; border-bottom: 0.5pt solid #b0b0b0; }
+  .job { margin-bottom: 5pt; page-break-inside: avoid; }
+  .job-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10pt; }
+  .dates { color: #505050; font-size: 8.5pt; white-space: nowrap; }
+  .org, .details, .tech { color: #505050; }
+  ul { margin: 1.5pt 0 0; padding-left: 11pt; }
+  ul.bullets { list-style: none; padding-left: 10pt; }
+  ul.bullets li { text-indent: -8pt; }
+  ul.bullets li::before { content: "•"; display: inline-block; width: 8pt; text-indent: 0; }
+  li { margin-bottom: 1pt; }
+  ul.plain { list-style: none; padding-left: 0; }
+  .dates-inline { color: #505050; font-size: 8.5pt; }
+</style>
+</head>
+<body>
+{% include "_cv_body.html" %}
+</body>
+</html>

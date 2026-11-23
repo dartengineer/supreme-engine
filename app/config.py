@@ -17,5 +17,8 @@ class Settings(BaseSettings):
     # Load the embedding model in the background when the server starts, so the first request doesn't wait.
     warm_up_embeddings: bool = True
 
+    # HTML -> PDF renderer (WeasyPrint in Docker, see pdf_renderer/). Listens on this machine only.
+    pdf_renderer_url: str = "http://127.0.0.1:5001"
+
 
 settings = Settings()

@@ -95,6 +95,7 @@ def selected_profile(profile: Profile, matches: list[Match]) -> dict:
 
     def job(e, with_bullets: bool) -> dict:
         entry = {
+            "ref": f"job{e.id}",
             "job_title": e.job_title,
             "company": e.company,
             "location": e.location,
@@ -121,6 +122,7 @@ def selected_profile(profile: Profile, matches: list[Match]) -> dict:
         "other_experience": [job(e, with_bullets=False) for e in other],
         "education": [
             {
+                "ref": f"edu{ed.id}",
                 "institution": ed.institution,
                 "qualification": ed.qualification,
                 "field_of_study": ed.field_of_study,
@@ -132,7 +134,7 @@ def selected_profile(profile: Profile, matches: list[Match]) -> dict:
             for ed in profile.education
         ],
         "projects": [
-            {"name": p.name, "technologies": p.technologies, "url": p.url, "description": p.description}
+            {"ref": f"proj{p.id}", "name": p.name, "technologies": p.technologies, "url": p.url, "description": p.description}
             for p in profile.projects if p.id in picked["project"]
         ],
         # Every skill and certification is listed (they're short), split by relevance. Sending only the
@@ -143,9 +145,9 @@ def selected_profile(profile: Profile, matches: list[Match]) -> dict:
             "other": [s.name for s in profile.skills if s.id not in picked["skill"]],
         },
         "certifications": {
-            "most_relevant": [{"name": c.name, "issuer": c.issuer}
+            "most_relevant": [{"ref": f"cert{c.id}", "name": c.name, "issuer": c.issuer}
                               for c in profile.certifications if c.id in picked["certification"]],
-            "other": [{"name": c.name, "issuer": c.issuer}
+            "other": [{"ref": f"cert{c.id}", "name": c.name, "issuer": c.issuer}
                       for c in profile.certifications if c.id not in picked["certification"]],
         },
     }

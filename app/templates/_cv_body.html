@@ -1,0 +1,85 @@
+{#- Shared CV structure. Single column, real text, standard headings, document order = reading order,
+    so applicant tracking systems (ATS) read it the way a person does. Templates only change the styling. -#}
+<header class="cv-header">
+  <h1 class="name">{{ cv.name }}</h1>
+  {% if contact %}<p class="contact">{{ contact }}</p>{% endif %}
+</header>
+
+<section>
+  <h2>Summary</h2>
+  <p class="summary">{{ cv.summary }}</p>
+</section>
+
+{% if cv.experience %}
+<section>
+  <h2>Experience</h2>
+  {% for job in cv.experience %}
+  <article class="job">
+    <div class="job-head">
+      <p class="job-title"><strong>{{ job.job_title }}</strong>{% if compact %} — {{ job.company }}{% endif %}</p>
+      <p class="dates">{{ job.start }} – {{ job.end }}</p>
+    </div>
+    {% if not compact %}<p class="org">{{ job.company }}{% if job.location %}, {{ job.location }}{% endif %}</p>{% endif %}
+    {% if job.bullets %}
+    <ul class="bullets">{% for b in job.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if cv.other_experience %}
+<section>
+  <h2>Other Experience</h2>
+  <ul class="plain">
+    {% for job in cv.other_experience %}
+    <li><strong>{{ job.job_title }}</strong>, {{ job.company }} <span class="dates-inline">{{ job.start }} – {{ job.end }}</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if cv.projects %}
+<section>
+  <h2>Projects</h2>
+  {% for p in cv.projects %}
+  <article class="job">
+    <p class="job-title"><strong>{{ p.name }}</strong>{% if p.technologies %} <span class="tech">| {{ p.technologies }}</span>{% endif %}</p>
+    {% if p.bullets %}<ul class="bullets">{% for b in p.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
+  </article>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if cv.education %}
+<section>
+  <h2>Education</h2>
+  {% for ed in cv.education %}
+  <article class="job">
+    <div class="job-head">
+      <p class="job-title"><strong>{{ ed.qualification }}{% if ed.field_of_study %}, {{ ed.field_of_study }}{% endif %}</strong></p>
+      {% if ed.dates %}<p class="dates">{{ ed.dates }}</p>{% endif %}
+    </div>
+    <p class="org">{{ ed.institution }}</p>
+    {% if ed.details %}<p class="details">{{ ed.details }}</p>{% endif %}
+  </article>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if cv.skills %}
+<section>
+  <h2>Skills</h2>
+  {#- One line of text, not columns: multi-column text can be read out of order by ATS parsers. -#}
+  <p class="skills-inline">{{ cv.skills | join(" · ") }}</p>
+</section>
+{% endif %}
+
+{% if cv.certifications %}
+<section>
+  <h2>Certifications</h2>
+  <ul class="plain">
+    {% for c in cv.certifications %}<li>{{ c.name }}{% if c.issuer %}, {{ c.issuer }}{% endif %}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}

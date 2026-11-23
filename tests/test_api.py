@@ -262,7 +262,9 @@ def fake_ai(monkeypatch):
             "job_description": job_description,
             "requirements": requirements,
         })
-        return "# Test CV"
+        from app.schemas import CVDraft
+        return CVDraft(summary="Test summary.", experience=[], other_experience_refs=[], projects=[], skills=[],
+                       education_refs=[], certification_refs=[])
 
     monkeypatch.setattr(ai, "generate_cv", fake_generate_cv)
     return calls
@@ -311,7 +313,7 @@ def test_generate_cv_twice_creates_versions_1_and_2(client, fake_ai):
     second = client.post(f"/applications/{app_id}/generate-cv", headers=h)
     assert first.status_code == 201, first.text
     assert (first.json()["version"], second.json()["version"]) == (1, 2)
-    assert first.json()["content"] == "# Test CV"
+    assert first.json()["content"].startswith("# Ada Obi") and "Test summary." in first.json()["content"]
     assert first.json()["doc_type"] == "cv"
     assert first.json()["model_used"]
 
@@ -497,10 +499,12 @@ def test_generate_cv_sends_only_selected_bullets(client, fake_ai, fake_extract):
     assert job["selected_bullets"] == ["Designed social media graphics in Canva"]
 
     # The unrelated (and more recent) job is still listed, but compactly and with no bullets.
-    assert sent["other_experience"] == [{
+    assert len(sent["other_experience"]) == 1
+    assert sent["other_experience"][0]["ref"].startswith("job")  # the CV writer refers to jobs by ref
+    assert {k: v for k, v in sent["other_experience"][0].items() if k != "ref"} == {
         "job_title": "Warehouse Assistant", "company": "BoxCo", "location": None,
         "start_date": "2023-05-01", "end_date": None,
-    }]
+    }
 
     # Nothing unselected leaks through: no other bullets, and no free-text summary.
     assert "phone calls" not in fake_ai[0]["profile_json"]
@@ -658,7 +662,7 @@ def test_unselected_skills_are_still_sent_as_other(client, fake_letter, fake_ext
     sent = json.loads(fake_letter[0]["context"].profile_json)
     assert sent["skills"] == {"most_relevant": ["Canva"], "other": ["Forklift licence"]}
     # Nothing goes missing: a skill that wasn't selected is still visible, so it can't be mistaken for a gap.
-    assert sent["certifications"]["other"] == [{"name": "First Aid", "issuer": None}]
+    assert sent["certifications"]["other"] == [{"ref": "cert1", "name": "First Aid", "issuer": None}]
 
 
 # ---------- Cover letter rules enforced in code ----------
@@ -806,7 +810,7 @@ def test_get_and_delete_a_document(client, fake_ai, fake_letter):
     first = docs[0]["id"]
 
     r = client.get(f"/documents/{first}", headers=h)
-    assert r.status_code == 200 and r.json()["content"] == "# Test CV" and r.json()["is_final"] is False
+    assert r.status_code == 200 and "Test summary." in r.json()["content"] and r.json()["is_final"] is False
 
     assert client.delete(f"/documents/{first}", headers=h).status_code == 204
     assert client.get(f"/documents/{first}", headers=h).status_code == 404
@@ -1141,3 +1145,180 @@ def test_compute_score_weights():
     assert matching.compute_score([item("required", "partial")]) == 50
     assert matching.compute_score([item("nice_to_have", "gap")]) == 0
     assert matching.compute_score([]) == 0
+
+
+# ---------- Structured CV, templates and downloads (v8) ----------
+import io  # noqa: E402
+
+import docx as python_docx  # noqa: E402
+import httpx  # noqa: E402
+import pypdf  # noqa: E402
+
+from app.schemas import CVDraft, CVJobDraft  # noqa: E402
+from app.services import cv_document, render  # noqa: E402
+
+CV_DRAFT = CVDraft(
+    summary="Graphic designer producing social media graphics.",
+    experience=[CVJobDraft(ref="job1", bullets=["- Designed 30 social media graphics monthly", "Answered customer emails"]),
+                CVJobDraft(ref="job99", bullets=["Invented job"])],
+    other_experience_refs=[], projects=[], skills=["canva", "Photoshop"], education_refs=[], certification_refs=[],
+)
+
+
+def built_cv():
+    return cv_document.build_cv(CV_DRAFT, FC_PROFILE)
+
+
+def test_build_cv_takes_hard_facts_from_the_profile():
+    cv, dropped = built_cv()
+    job = cv.experience[0]
+    assert (job.job_title, job.company, job.location, job.start, job.end) == \
+        ("Graphic Designer", "Acme Ltd.", "Remote", "Jan 2021", "Jun 2022")  # from the profile, not the model
+    assert job.bullets == ["Designed 30 social media graphics monthly", "Answered customer emails"]
+    assert len(cv.experience) == 1  # the made-up "job99" is gone...
+    assert [(j.job_title, j.end) for j in cv.other_experience] == [("Support Intern", "Present")]  # ...and no job is lost
+    assert cv.skills == ["Canva"]  # profile spelling; "Photoshop" isn't in the profile
+    assert dropped == ["Unknown job ref 'job99' was removed.", "Skill 'Photoshop' isn't in the profile and was removed."]
+
+
+def test_rendered_markdown_passes_the_code_fact_checks():
+    cv, _ = built_cv()
+    md = cv_document.render_markdown(cv)
+    assert md.startswith("# Ada Obi\n")
+    assert "**Graphic Designer** | Acme Ltd. | Remote | Jan 2021 – Jun 2022" in md
+    sources = factcheck.build_sources(FC_PROFILE, "Graphic Designer", None, None, 3.0)
+    assert factcheck.code_checks(md, FC_PROFILE, sources, "Graphic Designer", 3.0) == []
+
+
+def _in_order(text: str, parts: list[str]) -> bool:
+    pos = 0
+    for part in parts:
+        found = text.find(part, pos)
+        if found < 0:
+            return False
+        pos = found + len(part)
+    return True
+
+
+READING_ORDER = ["Ada Obi", "Summary", "Experience", "Graphic Designer", "Designed 30 social media graphics monthly",
+                 "Answered customer emails", "Other Experience", "Support Intern", "Skills", "Canva"]
+
+
+@pytest.mark.parametrize("template", render.TEMPLATES)
+def test_cv_html_templates_keep_content_in_reading_order(template):
+    cv, _ = built_cv()
+    html = render.cv_html(cv, template)
+    assert _in_order(html, READING_ORDER)
+    assert "<img" not in html and "http" not in html.split("<body>")[1].split("Ada Obi")[0]  # no images, no remote assets
+
+
+def test_html_is_escaped():
+    cv, _ = built_cv()
+    cv.experience[0].bullets.append("<script>alert(1)</script>")
+    assert "<script>alert(1)</script>" not in render.cv_html(cv, "modern")
+
+
+@pytest.mark.parametrize("template", render.TEMPLATES)
+def test_cv_docx_opens_and_reads_in_order(template):
+    cv, _ = built_cv()
+    document = python_docx.Document(io.BytesIO(render.cv_docx(cv, template)))
+    text = "\n".join(p.text for p in document.paragraphs)
+    assert _in_order(text, READING_ORDER)
+    headings = [p.text for p in document.paragraphs if p.style.name == "Heading 1"]
+    assert headings == ["Summary", "Experience", "Other Experience", "Skills"]  # real Word headings, for ATS
+
+
+LETTER = "Dear Acme Team,\n\nFirst paragraph about my work.\n\nSecond paragraph.\n\nKind regards,\nAda Obi"
+
+
+def test_letter_splits_and_renders():
+    parts = render.split_letter(LETTER)
+    assert parts == {"greeting": "Dear Acme Team,", "paragraphs": ["First paragraph about my work.", "Second paragraph."],
+                     "sign_off": ["Kind regards,", "Ada Obi"]}
+    assert _in_order(render.letter_html(LETTER, "Ada Obi", "Lagos"), ["Ada Obi", "Dear Acme Team,", "First paragraph",
+                                                                       "Second paragraph", "Kind regards,"])
+    text = "\n".join(p.text for p in python_docx.Document(io.BytesIO(render.letter_docx(LETTER, "Ada Obi", "Lagos"))).paragraphs)
+    assert _in_order(text, ["Ada Obi", "Dear Acme Team,", "First paragraph", "Second paragraph", "Kind regards,"])
+
+
+def _renderer_running() -> bool:
+    try:
+        return httpx.get(settings_pdf_url() + "/health", timeout=2).text == "ok"
+    except httpx.HTTPError:
+        return False
+
+
+def settings_pdf_url():
+    from app.config import settings
+    return settings.pdf_renderer_url.rstrip("/")
+
+
+@pytest.mark.skipif(not _renderer_running(), reason="PDF renderer container isn't running (docker start cv-pdf)")
+@pytest.mark.parametrize("template", render.TEMPLATES)
+def test_pdf_passes_the_ats_text_extraction_check(template):
+    """ATS check: the text pulled out of the PDF has the name, titles and bullets, readable and in order."""
+    cv, _ = built_cv()
+    pdf = render.html_to_pdf(render.cv_html(cv, template))
+    reader = pypdf.PdfReader(io.BytesIO(pdf))
+    text = " ".join(" ".join(page.extract_text().split()) for page in reader.pages)
+    # Headings are styled in capitals (CSS), so the PDF text says "SUMMARY"; ATS parsers ignore case.
+    assert _in_order(text.lower(), [part.lower() for part in READING_ORDER]), text
+    assert "•" not in text.split("Skills".upper())[-1]  # no stray list markers after the last section
+
+
+# --- the download endpoint
+
+def _cv_document(client, h):
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    return client.post(f"/applications/{app_id}/generate-cv", headers=h).json()
+
+
+def test_download_cv_as_pdf_and_docx(client, fake_ai, monkeypatch):
+    sent_html = []
+    monkeypatch.setattr(render, "html_to_pdf", lambda html: sent_html.append(html) or b"%PDF-1.7 test")
+    h = user_with_profile(client, name="Ada Obi")
+    doc = _cv_document(client, h)
+    assert doc["data"]["name"] == "Ada Obi"
+
+    r = client.get(f"/documents/{doc['id']}/download?format=pdf&template=modern", headers=h)
+    assert r.status_code == 200 and r.content == b"%PDF-1.7 test"
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.headers["content-disposition"] == 'attachment; filename="Ada_Obi_CV_Acme_v1.pdf"'
+    assert "#0e6e6b" in sent_html[0]  # the modern template was used
+
+    r = client.get(f"/documents/{doc['id']}/download?format=docx", headers=h)
+    assert r.status_code == 200 and r.headers["content-disposition"].endswith('.docx"')
+    assert python_docx.Document(io.BytesIO(r.content)).paragraphs[0].text == "Ada Obi"
+
+
+def test_download_cover_letter(client, fake_letter):
+    h = user_with_profile(client, name="Ada Obi")
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    doc = client.post(f"/applications/{app_id}/generate-cover-letter", headers=h).json()
+    r = client.get(f"/documents/{doc['id']}/download?format=docx&template=compact", headers=h)  # template ignored
+    assert r.status_code == 200
+    assert 'filename="Ada_Obi_Cover_Letter_Acme_v1.docx"' in r.headers["content-disposition"]
+    text = "\n".join(p.text for p in python_docx.Document(io.BytesIO(r.content)).paragraphs)
+    assert _in_order(text, ["Ada Obi", "Dear Acme Team,", "Test letter."])
+
+
+def test_download_errors(client, fake_ai, monkeypatch):
+    h = user_with_profile(client)
+    doc = _cv_document(client, h)
+    assert client.get(f"/documents/{doc['id']}/download?format=txt", headers=h).status_code == 422
+    assert client.get(f"/documents/{doc['id']}/download?template=fancy", headers=h).status_code == 422
+
+    def renderer_down(html):
+        raise render.RendererUnavailable("The PDF renderer isn't running. Start it with: docker start cv-pdf")
+
+    monkeypatch.setattr(render, "html_to_pdf", renderer_down)
+    r = client.get(f"/documents/{doc['id']}/download?format=pdf", headers=h)
+    assert r.status_code == 503 and "docker start cv-pdf" in r.json()["detail"]
+
+    with SessionLocal() as db:  # a CV from before v8 has no structured data
+        db.get(GeneratedDocument, doc["id"]).data = None
+        db.commit()
+    assert client.get(f"/documents/{doc['id']}/download?format=docx", headers=h).status_code == 409
+
+    other = user_with_profile(client, "b@example.com", "User B")
+    assert client.get(f"/documents/{doc['id']}/download?format=docx", headers=other).status_code == 404

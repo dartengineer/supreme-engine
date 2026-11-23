@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ cv.name }} – CV</title>
+<style>
+  /* No letter-spacing on names or headings: some ATS parsers read spaced letters as separate words
+     ("S U M M A R Y"). */
+  /* Modern: clean sans-serif, one teal accent, generous white space. Still single column and plain text. */
+  @page { size: A4; margin: 16mm 18mm; }
+  * { box-sizing: border-box; }
+  :root { --accent: #0e6e6b; --ink: #1f2933; --muted: #5f6b76; }
+  body { font-family: "Open Sans", "Liberation Sans", "DejaVu Sans", Arial, sans-serif; font-size: 9.8pt;
+         line-height: 1.45; color: var(--ink); margin: 0; }
+  p { margin: 0; }
+  .cv-header { border-left: 5pt solid var(--accent); padding: 2pt 0 2pt 12pt; margin-bottom: 6pt; }
+  .name { font-size: 24pt; font-weight: 700; margin: 0 0 3pt; }
+  .contact { color: var(--muted); font-size: 9pt; }
+  h2 { color: var(--accent); font-size: 10pt; font-weight: 700; text-transform: uppercase;
+       margin: 15pt 0 6pt; }
+  h2::after { content: ""; display: block; height: 1pt; background: #d5e3e2; margin-top: 3pt; }
+  .job { margin-bottom: 9pt; page-break-inside: avoid; }
+  .job-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12pt; }
+  .job-title { font-size: 10.3pt; }
+  .dates { color: var(--muted); font-size: 8.8pt; white-space: nowrap; }
+  .org { color: var(--accent); font-weight: 600; font-size: 9.3pt; margin-bottom: 2pt; }
+  .details, .tech { color: var(--muted); }
+  ul { margin: 3pt 0 0; padding-left: 12pt; }
+  li { margin-bottom: 2.5pt; }
+  ul.bullets { list-style: none; padding-left: 12pt; }
+  ul.bullets li { text-indent: -9pt; }
+  ul.bullets li::before { content: "•"; color: var(--accent); display: inline-block; width: 9pt;
+                          text-indent: 0; }
+  ul.plain { list-style: none; padding-left: 0; }
+  .dates-inline { color: var(--muted); font-size: 8.8pt; }
+</style>
+</head>
+<body>
+{% include "_cv_body.html" %}
+</body>
+</html>

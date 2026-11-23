@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ name }} – Cover letter</title>
+<style>
+  /* No letter-spacing on names or headings: some ATS parsers read spaced letters as separate words
+     ("S U M M A R Y"). */
+  /* Matches the Classic CV: serif, centred name, one rule. */
+  @page { size: A4; margin: 22mm 24mm; }
+  body { font-family: "Liberation Serif", "DejaVu Serif", Georgia, serif; font-size: 11pt; line-height: 1.5;
+         color: #1d1d1d; margin: 0; }
+  p { margin: 0 0 10pt; }
+  .letter-header { text-align: center; padding-bottom: 8pt; border-bottom: 1.2pt solid #1d1d1d; margin-bottom: 22pt; }
+  .name { font-size: 20pt; font-weight: normal; text-transform: uppercase; margin: 0 0 4pt; }
+  .contact { font-size: 9.5pt; color: #4a4a4a; margin: 0; }
+  .greeting { margin-bottom: 12pt; }
+  .sign-off { margin-top: 18pt; }
+</style>
+</head>
+<body>
+<header class="letter-header">
+  <h1 class="name">{{ name }}</h1>
+  {% if contact %}<p class="contact">{{ contact }}</p>{% endif %}
+</header>
+{% if greeting %}<p class="greeting">{{ greeting }}</p>{% endif %}
+{% for para in paragraphs %}<p>{{ para }}</p>
+{% endfor %}
+<p class="sign-off">{% for line in sign_off %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+</body>
+</html>

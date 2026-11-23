@@ -44,6 +44,17 @@ def years_of_experience(experiences, today: date | None = None) -> float:
     return round(len(months) / 12, 1)
 
 
+REF_PREFIXES = {"experiences": "job", "projects": "proj", "education": "edu", "certifications": "cert"}
+
+
+def add_refs(data: dict) -> dict:
+    """Gives every job, project, education entry and certification a "ref" (e.g. "job3") the CV can point to."""
+    for key, prefix in REF_PREFIXES.items():
+        for item in data.get(key) or []:
+            item["ref"] = f"{prefix}{item['id']}"
+    return data
+
+
 def build_generation_context(db: Session, profile: Profile, application: JobApplication) -> GenerationContext:
     requirements = JobRequirements.model_validate(application.requirements) if application.requirements else None
 
@@ -54,6 +65,7 @@ def build_generation_context(db: Session, profile: Profile, application: JobAppl
     else:
         matches = []
         data = FullProfileOut.model_validate(profile).model_dump(mode="json")
+        add_refs(data)
 
     years = years_of_experience(profile.experiences)
     total_experience = {

@@ -22,7 +22,7 @@ from app.schemas import (
     MatchReport,
 )
 from app.security import get_current_user
-from app.services import ai, factcheck, generation, matching, retrieval  # via the module so tests can swap in fakes
+from app.services import ai, cv_document, factcheck, generation, matching, retrieval  # via the module so tests can swap in fakes
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -70,7 +70,7 @@ def _write_checked(context, write) -> tuple[str, dict]:
 
 
 def _save_document(db: Session, application: JobApplication, doc_type: DocType, content: str,
-                   check_report: dict | None = None) -> GeneratedDocument:
+                   check_report: dict | None = None, data: dict | None = None) -> GeneratedDocument:
     """Saves a generated document as the next version *of its type* (CVs and cover letters count separately)."""
     latest = db.scalar(
         select(func.max(GeneratedDocument.version)).where(
@@ -85,6 +85,7 @@ def _save_document(db: Session, application: JobApplication, doc_type: DocType, 
         content=content,
         model_used=settings.ai_model,
         check_report=check_report,
+        data=data,
     )
     db.add(document)
     db.commit()
@@ -197,14 +198,20 @@ def generate_cv(app_id: int, user: User = Depends(get_current_user), db: Session
     """
     application = _get_own_application(app_id, user, db)
     context = generation.build_generation_context(db, _require_profile(user), application)
+    full_profile = json.loads(context.full_profile_json)
+    built = {}
 
     def write(feedback):
         extra = {"feedback": feedback} if feedback else {}
-        return ai.generate_cv(context.profile_json, context.job_title, context.job_description, context.requirements,
-                              **extra)
+        draft = ai.generate_cv(context.profile_json, context.job_title, context.job_description, context.requirements,
+                               **extra)
+        # Hard facts (names, employers, titles, dates) are filled in from the profile, not taken from the model.
+        built["cv"], built["dropped"] = cv_document.build_cv(draft, full_profile)
+        return cv_document.render_markdown(built["cv"])
 
     content, report = _write_checked(context, write)
-    return _save_document(db, application, "cv", content, report)
+    report["removed_by_code"] = built["dropped"]  # refs or skills the model used that the profile doesn't have
+    return _save_document(db, application, "cv", content, report, data=built["cv"].model_dump())
 
 
 @router.post("/{app_id}/generate-cover-letter", response_model=GeneratedDocumentOut,

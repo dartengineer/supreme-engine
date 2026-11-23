@@ -169,6 +169,77 @@ class GapAssessment(BaseModel):
         description="Nice-to-have skills the profile shows no evidence for.")
 
 
+# ---------- Structured CV (v8) ----------
+class CVJobDraft(BaseModel):
+    ref: str = Field(description="The job's ref from the profile, e.g. 'job3'.")
+    bullets: list[str] = Field(description="Bullets for this job, rewritten for the target role.")
+
+
+class CVProjectDraft(BaseModel):
+    ref: str = Field(description="The project's ref from the profile, e.g. 'proj2'.")
+    bullets: list[str]
+
+
+class CVDraft(BaseModel):
+    """What the model writes. Names, employers, titles and dates are filled in from the profile by code."""
+    summary: str = Field(description="2-4 sentence professional summary aimed at this job.")
+    experience: list[CVJobDraft] = Field(description="Jobs shown with bullets, most relevant first.")
+    other_experience_refs: list[str] = Field(description="Refs of jobs listed in one line without bullets.")
+    projects: list[CVProjectDraft]
+    skills: list[str] = Field(description="Skill names copied exactly from the profile, most relevant first.")
+    education_refs: list[str]
+    certification_refs: list[str]
+
+
+class CVContact(BaseModel):
+    phone: str | None = None
+    location: str | None = None
+    linkedin_url: str | None = None
+    portfolio_url: str | None = None
+
+
+class CVJob(BaseModel):
+    job_title: str
+    company: str
+    location: str | None = None
+    start: str  # "Mar 2021"
+    end: str  # "Oct 2022" or "Present"
+    bullets: list[str] = []
+
+
+class CVProject(BaseModel):
+    name: str
+    technologies: str | None = None
+    url: str | None = None
+    bullets: list[str] = []
+
+
+class CVEducation(BaseModel):
+    qualification: str
+    field_of_study: str | None = None
+    institution: str
+    dates: str | None = None
+    details: str | None = None
+
+
+class CVCertification(BaseModel):
+    name: str
+    issuer: str | None = None
+
+
+class CVDocument(BaseModel):
+    """A complete CV as data: rendered to Markdown, HTML templates, PDF and DOCX."""
+    name: str
+    contact: CVContact
+    summary: str
+    experience: list[CVJob]
+    other_experience: list[CVJob] = []
+    projects: list[CVProject] = []
+    education: list[CVEducation] = []
+    skills: list[str] = []
+    certifications: list[CVCertification] = []
+
+
 class RequirementMatch(BaseModel):
     requirement: str
     kind: Literal["required", "nice_to_have"]
@@ -241,4 +312,5 @@ class GeneratedDocumentOut(BaseModel):
     model_used: str | None = None
     is_final: bool = False  # the version you've chosen to send (one per type per application)
     check_report: dict | None = None  # fact-check: summary, flags (type, text, source, reason) and judged claims
+    data: dict | None = None  # the CV as structured data (CVs from v8 on); used by the download templates
     created_at: datetime
