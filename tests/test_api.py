@@ -949,8 +949,7 @@ def test_remaining_problems_are_returned_as_warnings_not_hidden(client, fake_let
 
 
 # ---------- Fact-check evaluation set: code layer (free, no AI calls) ----------
-# The evaluation files contain real profile data, so they're kept out of git (see .gitignore). Where they
-# don't exist (e.g. a fresh clone), these tests are skipped.
+# The evaluation files live in tests/eval_cases. If they're ever removed, these tests are skipped.
 EVAL_DIR = pathlib.Path(__file__).resolve().parent / "eval_cases"
 _EVAL_FILES = [EVAL_DIR / name for name in ("cases.json", "profile.json", "jobs.json")]
 EVAL_CASES = (json.loads((EVAL_DIR / "cases.json").read_text(encoding="utf-8"))["cases"]

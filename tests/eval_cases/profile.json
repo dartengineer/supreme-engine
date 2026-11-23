@@ -1,0 +1,259 @@
+{
+  "full_name": "Adeyemi Favour Oluwapelumi",
+  "headline": "Technical Support Specialist | Flutter Developer | Customer Service Professional",
+  "phone": null,
+  "location": "Lagos, Nigeria",
+  "linkedin_url": null,
+  "portfolio_url": "https://adeyemipelumi04.github.io/",
+  "summary": "A versatile and results-driven professional with over four years of combined experience in technical support, mobile application development, customer service, administrative operations, graphic design, and virtual assistance. Skilled in troubleshooting technical issues, developing mobile applications, managing customer relationships, and supporting business operations. Proficient in Flutter, Dart, Firebase, Microsoft Office, and Google Workspace. Demonstrates strong communication, problem-solving, multitasking, and organisational abilities.",
+  "id": 1,
+  "experiences": [
+    {
+      "job_title": "Technical Support Intern",
+      "company": "TechNova Solutions Ltd.",
+      "location": "Lagos, Nigeria",
+      "start_date": "2024-01-01",
+      "end_date": null,
+      "description": "- Resolved an average of 25–35 technical support requests weekly, covering software issues, account access, password resets, and system troubleshooting.\n- Reduced recurring support requests by approximately 20% by creating simple troubleshooting guides and instructional videos.\n- Maintained documentation for technical incidents, ensuring accurate tracking and follow-up on unresolved issues.\n- Supported approximately 50 employees with day-to-day technical challenges.\n- Collaborated with internal teams to resolve technical issues within agreed service timelines.",
+      "id": 1
+    },
+    {
+      "job_title": "HMO Associate – Operations",
+      "company": "HealthBridge Solutions Ltd.",
+      "location": "Lagos, Nigeria",
+      "start_date": "2022-11-01",
+      "end_date": "2023-12-01",
+      "description": "- Maintained and updated employee records for approximately 100 employees, including names, email addresses, contract types, job roles, and assigned work equipment.\n- Resolved missing employee information and account documentation within 24 hours of notification.\n- Investigated payroll discrepancies affecting employees and coordinated with the finance team to resolve outstanding payments.\n- Successfully resolved two employee payment documentation issues within 72 hours, with one additional case completed the following Monday due to pending finance approval.\n- Improved record-keeping accuracy through consistent documentation and regular employee information updates.",
+      "id": 2
+    },
+    {
+      "job_title": "Customer Service Representative",
+      "company": "ConnectPlus Services",
+      "location": "Lagos, Nigeria",
+      "start_date": "2021-03-01",
+      "end_date": "2022-10-01",
+      "description": "- Handled approximately 40–50 customer enquiries daily through telephone calls, emails, and messaging platforms.\n- Maintained a customer satisfaction rating of approximately 90% through effective communication and timely issue resolution.\n- Resolved approximately 80% of customer complaints at first contact.\n- Followed up with customers to ensure outstanding complaints were addressed.\n- Documented customer interactions and escalated complex cases to the appropriate departments.",
+      "id": 3
+    },
+    {
+      "job_title": "Graphic Designer & Virtual Assistant",
+      "company": "CreativeEdge Media",
+      "location": "Remote",
+      "start_date": "2020-06-01",
+      "end_date": "2021-02-01",
+      "description": "- Designed approximately 30–40 graphics monthly for social media campaigns, promotional materials, and business advertisements.\n- Managed daily administrative activities, including email correspondence, scheduling, and document organisation.\n- Created branded visual content that maintained consistency across digital marketing platforms.\n- Conducted online research and prepared organised reports to support business decisions.\n- Assisted with social media content planning and customer engagement.",
+      "id": 4
+    },
+    {
+      "job_title": "Cold Calling Agent",
+      "company": "BrightReach Marketing",
+      "location": "Lagos, Nigeria",
+      "start_date": "2020-01-01",
+      "end_date": "2020-05-01",
+      "description": "- Made approximately 50–70 outbound calls daily to prospective customers.\n- Identified and qualified potential leads based on customer needs and product suitability.\n- Maintained accurate prospect databases and documented call outcomes.\n- Scheduled follow-up conversations with interested prospects to improve conversion opportunities.\n- Handled customer objections professionally and communicated product benefits effectively.",
+      "id": 5
+    }
+  ],
+  "education": [
+    {
+      "institution": "University of Ilorin",
+      "qualification": "Bachelor of Science (B.Sc.)",
+      "field_of_study": "Information and Communication Science",
+      "start_date": null,
+      "end_date": null,
+      "grade": null,
+      "description": "Kwara State, Nigeria. 2017 – 2021.",
+      "id": 1
+    }
+  ],
+  "skills": [
+    {
+      "name": "Flutter and Dart",
+      "category": "Technical skills",
+      "level": null,
+      "id": 1
+    },
+    {
+      "name": "Firebase Authentication",
+      "category": "Technical skills",
+      "level": null,
+      "id": 2
+    },
+    {
+      "name": "REST API Integration",
+      "category": "Technical skills",
+      "level": null,
+      "id": 3
+    },
+    {
+      "name": "HTML, CSS, and JavaScript",
+      "category": "Technical skills",
+      "level": null,
+      "id": 4
+    },
+    {
+      "name": "Git and GitHub",
+      "category": "Technical skills",
+      "level": null,
+      "id": 5
+    },
+    {
+      "name": "Microsoft Office Suite",
+      "category": "Technical skills",
+      "level": null,
+      "id": 6
+    },
+    {
+      "name": "Google Workspace",
+      "category": "Technical skills",
+      "level": null,
+      "id": 7
+    },
+    {
+      "name": "Figma and Canva",
+      "category": "Technical skills",
+      "level": null,
+      "id": 8
+    },
+    {
+      "name": "Mobile Application Development",
+      "category": "Technical skills",
+      "level": null,
+      "id": 9
+    },
+    {
+      "name": "Technical Support and Troubleshooting",
+      "category": "Professional skills",
+      "level": null,
+      "id": 10
+    },
+    {
+      "name": "Customer Relationship Management",
+      "category": "Professional skills",
+      "level": null,
+      "id": 11
+    },
+    {
+      "name": "Virtual Assistance",
+      "category": "Professional skills",
+      "level": null,
+      "id": 12
+    },
+    {
+      "name": "Graphic Design",
+      "category": "Professional skills",
+      "level": null,
+      "id": 13
+    },
+    {
+      "name": "Cold Calling and Lead Generation",
+      "category": "Professional skills",
+      "level": null,
+      "id": 14
+    },
+    {
+      "name": "Administrative Support",
+      "category": "Professional skills",
+      "level": null,
+      "id": 15
+    },
+    {
+      "name": "Data Entry and Documentation",
+      "category": "Professional skills",
+      "level": null,
+      "id": 16
+    },
+    {
+      "name": "Problem-Solving",
+      "category": "Professional skills",
+      "level": null,
+      "id": 17
+    },
+    {
+      "name": "Communication and Interpersonal Skills",
+      "category": "Professional skills",
+      "level": null,
+      "id": 18
+    },
+    {
+      "name": "Time Management",
+      "category": "Professional skills",
+      "level": null,
+      "id": 19
+    }
+  ],
+  "projects": [
+    {
+      "name": "AI Personal Secretary Application",
+      "role": null,
+      "url": null,
+      "technologies": "Flutter, Firebase, Google APIs",
+      "description": "- Developed a mobile application designed to automate administrative tasks.\n- Integrated Google services to support document management and productivity.\n- Implemented audio transcription workflows and explored automated form generation.\n- Designed a dashboard for managing tasks and tracking application activities.",
+      "start_date": null,
+      "end_date": null,
+      "id": 1
+    },
+    {
+      "name": "Personal Developer Portfolio",
+      "role": null,
+      "url": "https://adeyemipelumi04.github.io/",
+      "technologies": "HTML, CSS, JavaScript",
+      "description": "- Developed a personal portfolio website to showcase technical skills and completed projects.\n- Implemented responsive layouts for desktop and mobile devices.\n- Organised projects and professional information for potential employers.",
+      "start_date": null,
+      "end_date": null,
+      "id": 2
+    },
+    {
+      "name": "Habit Tracking Application",
+      "role": null,
+      "url": null,
+      "technologies": "Flutter, Dart, Provider",
+      "description": "- Developed a mobile application for tracking daily habits and monitoring user progress.\n- Implemented interactive interfaces and state management.\n- Designed features to encourage consistency and productivity.",
+      "start_date": null,
+      "end_date": null,
+      "id": 3
+    }
+  ],
+  "certifications": [
+    {
+      "name": "Google IT Support Professional Certificate (2023)",
+      "issuer": "Coursera",
+      "issue_date": null,
+      "expiry_date": null,
+      "credential_url": null,
+      "id": 1
+    },
+    {
+      "name": "Flutter & Dart – Complete App Development Bootcamp (2023)",
+      "issuer": "Udemy",
+      "issue_date": null,
+      "expiry_date": null,
+      "credential_url": null,
+      "id": 2
+    },
+    {
+      "name": "Customer Service Fundamentals (2022)",
+      "issuer": "Alison",
+      "issue_date": null,
+      "expiry_date": null,
+      "credential_url": null,
+      "id": 3
+    },
+    {
+      "name": "Graphic Design Essentials (2021)",
+      "issuer": "Coursera",
+      "issue_date": null,
+      "expiry_date": null,
+      "credential_url": null,
+      "id": 4
+    },
+    {
+      "name": "Microsoft Office Productivity (2021)",
+      "issuer": "LinkedIn Learning",
+      "issue_date": null,
+      "expiry_date": null,
+      "credential_url": null,
+      "id": 5
+    }
+  ]
+}

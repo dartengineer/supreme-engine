@@ -6,8 +6,8 @@ Runs the full checker (code checks + LLM claim judge) on every case and prints:
 
 This calls the real AI (a few cents per run), so it isn't part of pytest. Run from the project root:
     python scripts/eval_factcheck.py
-The test set (cases.json, profile.json, jobs.json) holds real profile data, so it's kept out of git and exists
-only locally. Results are saved to tests/eval_cases/last_run.json (also not committed).
+The test set is in tests/eval_cases (cases.json, profile.json, jobs.json). Results are saved to
+tests/eval_cases/last_run.json (not committed).
 """
 import json
 import pathlib
@@ -29,8 +29,7 @@ EVAL = ROOT / "tests" / "eval_cases"
 def main() -> None:
     missing = [n for n in ("cases.json", "profile.json", "jobs.json") if not (EVAL / n).exists()]
     if missing:
-        sys.exit(f"Missing {', '.join(missing)} in {EVAL}. These files hold real profile data and are kept "
-                 "out of git, so they only exist on the machine where they were created.")
+        sys.exit(f"Missing {', '.join(missing)} in {EVAL}; the test set is needed to run the evaluation.")
     profile = json.loads((EVAL / "profile.json").read_text(encoding="utf-8"))
     jobs = json.loads((EVAL / "jobs.json").read_text(encoding="utf-8"))
     cases = json.loads((EVAL / "cases.json").read_text(encoding="utf-8"))["cases"]

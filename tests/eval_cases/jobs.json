@@ -1,0 +1,37 @@
+{
+  "graphic_designer_title_only": {
+    "job_title": "Graphic Designer",
+    "company": null,
+    "job_description": null
+  },
+  "virtual_assistant_title_only": {
+    "job_title": "Virtual Assistant",
+    "company": null,
+    "job_description": null
+  },
+  "customer_service_title_only": {
+    "job_title": "Customer Service Representative",
+    "company": null,
+    "job_description": null
+  },
+  "cloudmatrix_technical_support": {
+    "job_title": "Technical Support Specialist",
+    "company": "CloudMatrix Technologies",
+    "job_description": "Location: Lagos, Nigeria\nEmployment Type: Full-time\nExperience: 3–5 years\n\nJob Description\nWe are seeking an experienced Technical Support Specialist to manage enterprise-level technical infrastructure and provide advanced IT support to corporate clients.\n\nResponsibilities\n- Manage Windows Server environments and Active Directory.\n- Configure and troubleshoot LAN, WAN, VPN, and network infrastructure.\n- Administer Microsoft Azure and Microsoft 365 environments.\n- Manage IT service requests using ServiceNow.\n- Perform system backups, security monitoring, and disaster recovery procedures.\n- Provide Level 2 and Level 3 technical support.\n\nRequirements\n- Bachelor's degree in Computer Science or a related field.\n- Minimum of 3 years of enterprise IT support experience.\n- Strong knowledge of Windows Server and Active Directory.\n- Experience with Microsoft Azure and cloud infrastructure.\n- ITIL Foundation certification.\n- CompTIA Network+ or Security+ certification."
+  },
+  "finedge_customer_service": {
+    "job_title": "Customer Service Representative",
+    "company": "FinEdge Financial Services",
+    "job_description": "Location: Victoria Island, Lagos\nEmployment Type: Full-time\nExperience: 2–4 years\n\nJob Description\nWe are looking for a Customer Service Representative with experience in financial services, banking operations, and digital payment resolution.\n\nResponsibilities\n- Handle customer complaints relating to failed transactions, transfers, and payment reversals.\n- Investigate transaction disputes and reconcile payment records.\n- Support customers with mobile banking and internet banking issues.\n- Maintain compliance with financial regulations and internal KYC procedures.\n- Work with transaction monitoring and CRM platforms.\n- Prepare daily reports on customer complaints and resolution rates.\n\nRequirements\n- Minimum of 2 years' experience in banking or financial services customer support.\n- Knowledge of payment processing systems and transaction reconciliation.\n- Understanding of KYC, AML, and financial compliance procedures.\n- Experience using CRM platforms such as Salesforce or Zendesk.\n- Strong analytical and reporting skills.\n- Ability to handle sensitive financial information."
+  },
+  "pixelcraft_graphic_designer": {
+    "job_title": "Graphic Designer",
+    "company": "PixelCraft Creative Agency",
+    "job_description": "Location: Lekki, Lagos\nEmployment Type: Full-time\nExperience: 3–5 years\n\nJob Description\nPixelCraft is seeking a highly creative and experienced Graphic Designer with strong expertise in brand identity development, motion graphics, and professional digital illustration.\n\nResponsibilities\n- Develop complete brand identity systems for corporate clients.\n- Create professional logo concepts, brand guidelines, and visual identity documentation.\n- Produce animated advertisements and motion graphics for digital campaigns.\n- Design packaging, product labels, and print-ready marketing materials.\n- Create illustrations using Adobe Illustrator.\n- Collaborate with marketing and creative teams on large-scale branding projects.\n\nRequirements\n- Bachelor's degree in Graphic Design, Fine Arts, or a related discipline.\n- Minimum of 3 years of professional graphic design experience.\n- Advanced proficiency in Adobe Photoshop, Illustrator, and After Effects.\n- Experience in motion graphics and animation.\n- Strong understanding of typography, colour theory, and brand identity.\n- A professional portfolio demonstrating complete branding projects."
+  },
+  "worksphere_virtual_assistant": {
+    "job_title": "Virtual Assistant",
+    "company": "WorkSphere Solutions",
+    "job_description": "Location: Remote (Nigeria)\nEmployment Type: Full-time\nExperience Level: 1–3 years\nSalary: ₦150,000 – ₦250,000 monthly\n\nJob Description\nWorkSphere Solutions is looking for a proactive, organised, and detail-oriented Virtual Assistant to provide administrative and customer support to our growing team.\n\nThe ideal candidate should have experience managing administrative tasks, communicating with customers, handling emails, scheduling appointments, and supporting daily business operations remotely.\n\nKey Responsibilities\n- Manage daily email correspondence and respond to customer enquiries professionally.\n- Schedule meetings, manage calendars, and coordinate appointments.\n- Provide customer support through email, telephone calls, and messaging platforms.\n- Maintain digital records, organise documents, and update company databases.\n- Conduct online research and prepare reports when required.\n- Assist with social media management and basic graphic design.\n- Handle follow-ups with customers, clients, and business partners.\n- Support general administrative activities to ensure smooth business operations.\n\nRequirements\n- Minimum of 1–2 years of experience in virtual assistance, customer service, or administrative support.\n- Excellent written and verbal communication skills.\n- Good knowledge of Microsoft Office and Google Workspace.\n- Ability to manage emails, calendars, and digital documents.\n- Basic graphic design skills using Canva or similar tools.\n- Strong organisational and time-management abilities.\n- Ability to multitask and work independently with minimal supervision.\n- Reliable internet connection and ability to work remotely.\n\nPreferred Qualifications\n- Experience with CRM tools and customer management platforms.\n- Familiarity with project management tools such as Trello, Asana, or ClickUp.\n- Experience handling outbound calls and customer follow-ups.\n- Knowledge of social media management.\n\nHow to Apply\nInterested candidates should submit their updated CV and a brief cover letter highlighting their administrative and customer service experience."
+  }
+}
