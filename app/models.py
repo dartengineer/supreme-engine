@@ -154,6 +154,9 @@ class JobApplication(TimestampMixin, Base):
     company: Mapped[str | None] = mapped_column(String(200))
     job_description: Mapped[str | None] = mapped_column(Text)
     requirements: Mapped[dict | None] = mapped_column(JSON)  # filled by POST /applications/{id}/analyze
+    # Optional, written by the user: why they want this job ("I use their app"). The only allowed source of
+    # personal motivation in a cover letter, because the profile can't supply it.
+    motivation_notes: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(50), default="draft")  # draft, applied, interview, offer, rejected
 
     user: Mapped[User] = relationship(back_populates="job_applications")

@@ -2,6 +2,7 @@
 which is wiped before every test, so your real data is never touched.
 Run with:  pytest -v      (set TEST_DATABASE_URL to use a different test database)
 """
+import json
 import os
 import pathlib
 import re
@@ -519,3 +520,199 @@ def test_cannot_see_another_users_matches(client, fake_extract):
 
     b = user_with_profile(client, "b@example.com", "User B")
     assert client.get(f"/applications/{app_id}/matches", headers=b).status_code == 404
+
+
+# ---------- Cover letters (v4) ----------
+from datetime import date  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+from app.services.generation import years_of_experience  # noqa: E402
+
+
+@pytest.fixture()
+def fake_letter(monkeypatch):
+    """Replaces generate_cover_letter with a fake that records what it was given."""
+    calls = []
+
+    def fake_generate_cover_letter(context, company, motivation_notes):
+        calls.append({"context": context, "company": company, "motivation_notes": motivation_notes})
+        return "Dear Acme Team,\n\nTest letter.\n\nKind regards,\nAda Obi"
+
+    monkeypatch.setattr(ai, "generate_cover_letter", fake_generate_cover_letter)
+    return calls
+
+
+def versions(client, app_id, headers, doc_type=None):
+    url = f"/applications/{app_id}/documents" + (f"?doc_type={doc_type}" if doc_type else "")
+    return [(d["doc_type"], d["version"]) for d in client.get(url, headers=headers).json()]
+
+
+def test_versions_count_separately_per_document_type(client, fake_ai, fake_letter):
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    for _ in range(3):
+        client.post(f"/applications/{app_id}/generate-cv", headers=h)
+
+    r = client.post(f"/applications/{app_id}/generate-cover-letter", headers=h)
+    assert r.status_code == 201, r.text
+    assert (r.json()["doc_type"], r.json()["version"]) == ("cover_letter", 1)  # v1, despite 3 CVs
+    assert client.post(f"/applications/{app_id}/generate-cover-letter", headers=h).json()["version"] == 2
+
+    assert versions(client, app_id, h, "cover_letter") == [("cover_letter", 2), ("cover_letter", 1)]
+    assert versions(client, app_id, h, "cv") == [("cv", 3), ("cv", 2), ("cv", 1)]
+    assert len(versions(client, app_id, h)) == 5
+    assert client.get(f"/applications/{app_id}/documents?doc_type=essay", headers=h).status_code == 422
+
+
+def test_cover_letter_with_and_without_motivation_notes(client, fake_letter):
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+
+    assert client.post(f"/applications/{app_id}/generate-cover-letter", headers=h).status_code == 201
+    assert fake_letter[0]["motivation_notes"] is None
+    assert fake_letter[0]["company"] == "Acme"
+
+    r = client.patch(f"/applications/{app_id}", json={"motivation_notes": "I use their app every day."}, headers=h)
+    assert r.status_code == 200 and r.json()["motivation_notes"] == "I use their app every day."
+    assert client.post(f"/applications/{app_id}/generate-cover-letter", headers=h).status_code == 201
+    assert fake_letter[1]["motivation_notes"] == "I use their app every day."
+
+    # Blank notes count as no notes.
+    client.patch(f"/applications/{app_id}", json={"motivation_notes": "   "}, headers=h)
+    client.post(f"/applications/{app_id}/generate-cover-letter", headers=h)
+    assert fake_letter[2]["motivation_notes"] is None
+
+
+def test_cover_letter_uses_the_same_context_as_the_cv(client, fake_ai, fake_letter, fake_extract):
+    h = user_with_profile(client)
+    client.post("/profile/experiences", json=DESIGNER_JOB, headers=h)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    client.post(f"/applications/{app_id}/analyze", headers=h)
+
+    client.post(f"/applications/{app_id}/generate-cv", headers=h)
+    client.post(f"/applications/{app_id}/generate-cover-letter", headers=h)
+    context = fake_letter[0]["context"]
+    assert context.profile_json == fake_ai[0]["profile_json"]  # identical facts for both documents
+    assert context.requirements == FAKE_REQUIREMENTS
+    assert "Designed social media graphics in Canva" in [m.text for m in context.matches]
+    assert '"total_experience"' in context.profile_json
+
+
+def test_cannot_generate_cover_letter_for_another_user(client, fake_letter):
+    a = user_with_profile(client, "a@example.com", "User A")
+    app_id = client.post("/applications", json=APPLICATION, headers=a).json()["id"]
+
+    b = user_with_profile(client, "b@example.com", "User B")
+    assert client.post(f"/applications/{app_id}/generate-cover-letter", headers=b).status_code == 404
+    assert client.patch(f"/applications/{app_id}", json={"motivation_notes": "x"}, headers=b).status_code == 404
+    assert fake_letter == []
+
+
+def test_cover_letter_failure_returns_502_and_saves_nothing(client, monkeypatch):
+    def failing(*args):
+        raise ai.AIError("The AI service is busy. Try again shortly.")
+
+    monkeypatch.setattr(ai, "generate_cover_letter", failing)
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    assert client.post(f"/applications/{app_id}/generate-cover-letter", headers=h).status_code == 502
+    assert versions(client, app_id, h) == []
+
+
+def test_changing_the_job_ad_clears_old_requirements(client, fake_extract):
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    client.post(f"/applications/{app_id}/analyze", headers=h)
+
+    # Notes don't affect the ad, so the requirements stay.
+    assert client.patch(f"/applications/{app_id}", json={"motivation_notes": "x"}, headers=h).json()["requirements"]
+    # A new description does, so they're cleared.
+    r = client.patch(f"/applications/{app_id}", json={"job_description": "A different ad."}, headers=h)
+    assert r.json()["requirements"] is None
+
+
+def test_years_of_experience_counts_overlaps_once():
+    jobs = [
+        SimpleNamespace(start_date=date(2020, 1, 1), end_date=date(2020, 12, 1)),  # 12 months
+        SimpleNamespace(start_date=date(2020, 6, 1), end_date=date(2021, 5, 1)),  # overlaps 7, adds 5
+        SimpleNamespace(start_date=date(2023, 1, 1), end_date=None),  # Jan-Jun 2023 = 6 (to "today")
+    ]
+    assert years_of_experience(jobs, today=date(2023, 6, 15)) == round(23 / 12, 1)
+    assert years_of_experience([]) == 0
+
+
+def test_unselected_skills_are_still_sent_as_other(client, fake_letter, fake_extract):
+    h = user_with_profile(client)
+    client.post("/profile/skills", json={"name": "Canva"}, headers=h)  # matches a requirement
+    client.post("/profile/skills", json={"name": "Forklift licence"}, headers=h)  # matches nothing
+    client.post("/profile/certifications", json={"name": "First Aid"}, headers=h)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    client.post(f"/applications/{app_id}/analyze", headers=h)
+
+    client.post(f"/applications/{app_id}/generate-cover-letter", headers=h)
+    sent = json.loads(fake_letter[0]["context"].profile_json)
+    assert sent["skills"] == {"most_relevant": ["Canva"], "other": ["Forklift licence"]}
+    # Nothing goes missing: a skill that wasn't selected is still visible, so it can't be mistaken for a gap.
+    assert sent["certifications"]["other"] == [{"name": "First Aid", "issuer": None}]
+
+
+# ---------- Cover letter rules enforced in code ----------
+from app.schemas import GapAssessment  # noqa: E402
+
+
+def _context(requirements=FAKE_REQUIREMENTS):
+    return SimpleNamespace(profile_json='{"full_name": "Ada Obi"}', full_profile_json='{"full_name": "Ada Obi"}',
+                           job_title="Graphic Designer", job_description="Design brand assets.",
+                           requirements=requirements)
+
+
+def _letter(words: int, greeting="Dear Sir,"):
+    return f"{greeting}\n\n" + " ".join(["word"] * words) + "\n\nKind regards,\nAda Obi"
+
+
+def test_letter_word_count_ignores_greeting_and_sign_off():
+    assert ai.letter_body_word_count(_letter(260)) == 260
+
+
+def test_choose_gaps_keeps_at_most_two_required_or_one_nice_to_have():
+    assert ai.choose_gaps(GapAssessment(missing_required=["KYC", "AML", "Salesforce"], missing_nice_to_have=["Trello"])) == ["KYC", "AML"]
+    assert ai.choose_gaps(GapAssessment(missing_required=[], missing_nice_to_have=["Trello", "Asana"])) == ["Trello"]
+    assert ai.choose_gaps(GapAssessment(missing_required=[], missing_nice_to_have=[])) == []
+
+
+def test_cover_letter_enforces_gaps_length_and_greeting(monkeypatch):
+    sent = []
+    replies = iter([_letter(200), _letter(300)])  # too short first, fine after one rewrite
+
+    def fake_complete_messages(system, messages, what):
+        sent.append([dict(m) for m in messages])
+        return next(replies)
+
+    monkeypatch.setattr(ai, "assess_gaps", lambda profile, reqs: GapAssessment(
+        missing_required=["KYC", "AML", "Salesforce"], missing_nice_to_have=["Trello"]))
+    monkeypatch.setattr(ai, "_complete_messages", fake_complete_messages)
+
+    letter = ai.generate_cover_letter(_context(), "FinEdge", None)
+
+    first_prompt = sent[0][0]["content"]
+    assert "<gaps_to_mention>\nKYC\nAML\n</gaps_to_mention>" in first_prompt  # only the top two
+    assert "Salesforce" not in first_prompt.split("<gaps_to_mention>")[1].split("</gaps_to_mention>")[0]
+    assert "<greeting>Dear FinEdge Team,</greeting>" in first_prompt
+    assert "(none given" in first_prompt  # no motivation notes
+
+    assert len(sent) == 2  # exactly one rewrite
+    assert "200 words" in sent[1][-1]["content"]
+    assert letter.splitlines()[0] == "Dear FinEdge Team,"  # model's "Dear Sir," replaced
+    assert ai.letter_body_word_count(letter) == 300
+
+
+def test_cover_letter_without_requirements_skips_gap_check_and_rewrite(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ai, "assess_gaps", lambda *a: (_ for _ in ()).throw(AssertionError("should not run")))
+    monkeypatch.setattr(ai, "_complete_messages", lambda s, m, w: calls.append(m) or _letter(300, "Dear Team,"))
+
+    letter = ai.generate_cover_letter(_context(requirements=None), None, "I use their app.")
+    assert len(calls) == 1
+    assert "<gaps_to_mention>\n(none)\n</gaps_to_mention>" in calls[0][0]["content"]
+    assert "I use their app." in calls[0][0]["content"]
+    assert letter.splitlines()[0] == "Dear Hiring Manager,"  # no company known

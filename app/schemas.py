@@ -134,6 +134,14 @@ class JobRequirements(BaseModel):
     key_responsibilities: list[str] = Field(description="The main duties of the role, each as a short phrase.")
 
 
+class GapAssessment(BaseModel):
+    """Requirements the candidate's profile shows no evidence for (used to keep cover letters honest)."""
+    missing_required: list[str] = Field(
+        description="Required skills/qualifications the profile shows no evidence for, most important first.")
+    missing_nice_to_have: list[str] = Field(
+        description="Nice-to-have skills the profile shows no evidence for, most important first.")
+
+
 class MatchOut(BaseModel):
     """A profile chunk picked for a job, and why (GET /applications/{id}/matches)."""
     chunk_id: int
@@ -149,6 +157,16 @@ class JobApplicationCreate(BaseModel):
     job_title: str = Field(min_length=1, max_length=200)
     company: str | None = Field(default=None, max_length=200)
     job_description: str | None = None  # paste the job ad here; the AI tailors the CV to it
+    # Why you want this job, in your own words (e.g. "I use their app daily"). Used only by cover letters.
+    motivation_notes: str | None = Field(default=None, max_length=1000)
+
+
+class JobApplicationUpdate(BaseModel):
+    """Change any of these fields; leave out the ones you don't want to change."""
+    job_title: str | None = Field(default=None, min_length=1, max_length=200)
+    company: str | None = Field(default=None, max_length=200)
+    job_description: str | None = None
+    motivation_notes: str | None = Field(default=None, max_length=1000)
 
 
 class JobApplicationOut(JobApplicationCreate):

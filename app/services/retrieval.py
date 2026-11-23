@@ -135,8 +135,17 @@ def selected_profile(profile: Profile, matches: list[Match]) -> dict:
             {"name": p.name, "technologies": p.technologies, "url": p.url, "description": p.description}
             for p in profile.projects if p.id in picked["project"]
         ],
-        "skills": [s.name for s in profile.skills if s.id in picked["skill"]],
-        "certifications": [
-            {"name": c.name, "issuer": c.issuer} for c in profile.certifications if c.id in picked["certification"]
-        ],
+        # Every skill and certification is listed (they're short), split by relevance. Sending only the
+        # selected ones made the AI think unselected ones were missing (e.g. "keen to learn Canva" when
+        # the profile has "Figma and Canva").
+        "skills": {
+            "most_relevant": [s.name for s in profile.skills if s.id in picked["skill"]],
+            "other": [s.name for s in profile.skills if s.id not in picked["skill"]],
+        },
+        "certifications": {
+            "most_relevant": [{"name": c.name, "issuer": c.issuer}
+                              for c in profile.certifications if c.id in picked["certification"]],
+            "other": [{"name": c.name, "issuer": c.issuer}
+                      for c in profile.certifications if c.id not in picked["certification"]],
+        },
     }
