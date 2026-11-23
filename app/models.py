@@ -39,6 +39,7 @@ class Profile(TimestampMixin, Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True)
     full_name: Mapped[str] = mapped_column(String(150))
     headline: Mapped[str | None] = mapped_column(String(200))  # e.g. "Graphic Designer & Virtual Assistant"
+    email: Mapped[str | None] = mapped_column(String(255))  # contact email shown on CVs and cover letters
     phone: Mapped[str | None] = mapped_column(String(50))
     location: Mapped[str | None] = mapped_column(String(150))
     linkedin_url: Mapped[str | None] = mapped_column(String(255))

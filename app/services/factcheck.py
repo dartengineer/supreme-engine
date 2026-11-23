@@ -82,7 +82,7 @@ def build_sources(profile: dict, job_title: str, job_description: str | None, mo
                   years: float) -> list[Source]:
     """Numbered pieces of everything a document may legitimately draw on."""
     sources = [Source("B", "Candidate: " + ", ".join(
-        f"{k.replace('_', ' ')}: {profile[k]}" for k in ("full_name", "headline", "phone", "location",
+        f"{k.replace('_', ' ')}: {profile[k]}" for k in ("full_name", "headline", "email", "phone", "location",
                                                          "linkedin_url", "portfolio_url") if profile.get(k)))]
     if profile.get("summary"):
         sources.append(Source("SUM", f"Profile summary written by the candidate: {profile['summary']}"))

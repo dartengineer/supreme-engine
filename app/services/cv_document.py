@@ -52,11 +52,15 @@ def build_cv(draft: CVDraft, profile: dict) -> tuple[CVDocument, list[str]]:
         return False
 
     used_jobs: set[str] = set()
-    experience = []
+    chosen: list[tuple[dict, list[str]]] = []
     for j in draft.experience:
         if known(j.ref, jobs, "job") and j.ref not in used_jobs:
             used_jobs.add(j.ref)
-            experience.append(_job(jobs[j.ref], _clean(j.bullets)))
+            chosen.append((jobs[j.ref], _clean(j.bullets)))
+    # The model picks which jobs and bullets to show; code shows them newest first, as recruiters expect
+    # (a current job first, then by start date).
+    chosen.sort(key=lambda pair: (pair[0].get("end_date") is None, pair[0]["start_date"]), reverse=True)
+    experience = [_job(e, bullets) for e, bullets in chosen]
 
     # Every job appears somewhere: the ones not shown with bullets are listed compactly, newest first.
     other_refs = [r for r in draft.other_experience_refs if known(r, jobs, "job") and r not in used_jobs]
@@ -86,7 +90,7 @@ def build_cv(draft: CVDraft, profile: dict) -> tuple[CVDocument, list[str]]:
 
     return CVDocument(
         name=profile["full_name"],
-        contact=CVContact(phone=profile.get("phone"), location=profile.get("location"),
+        contact=CVContact(email=profile.get("email"), phone=profile.get("phone"), location=profile.get("location"),
                           linkedin_url=profile.get("linkedin_url"), portfolio_url=profile.get("portfolio_url")),
         summary=draft.summary.strip(),
         experience=experience,
@@ -106,9 +110,14 @@ def _short_url(url: str | None) -> str | None:
     return url.strip().removeprefix("https://").removeprefix("http://").removeprefix("www.").rstrip("/")
 
 
+def contact_parts(email, phone, location, linkedin_url, portfolio_url) -> str:
+    """One contact line for CVs and cover letters: email first, then phone, location and short links."""
+    return " | ".join(x for x in (email, phone, location, _short_url(linkedin_url), _short_url(portfolio_url)) if x)
+
+
 def contact_line(cv: CVDocument) -> str:
     c = cv.contact
-    return " | ".join(x for x in (c.phone, c.location, _short_url(c.linkedin_url), _short_url(c.portfolio_url)) if x)
+    return contact_parts(c.email, c.phone, c.location, c.linkedin_url, c.portfolio_url)
 
 
 def render_markdown(cv: CVDocument) -> str:

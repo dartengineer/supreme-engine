@@ -59,8 +59,8 @@ def download_document(doc_id: int, format: Literal["pdf", "docx"] = "pdf",
     else:
         profile = user.profile
         name = profile.full_name if profile else "Cover letter"
-        contact = " | ".join(x for x in (profile.phone, profile.location, cv_document._short_url(profile.linkedin_url),
-                                         cv_document._short_url(profile.portfolio_url)) if x) if profile else ""
+        contact = cv_document.contact_parts(profile.email, profile.phone, profile.location, profile.linkedin_url,
+                                            profile.portfolio_url) if profile else ""
         make_pdf = lambda: render.html_to_pdf(render.letter_html(document.content, name, contact))  # noqa: E731
         make_docx = lambda: render.letter_docx(document.content, name, contact)  # noqa: E731
 

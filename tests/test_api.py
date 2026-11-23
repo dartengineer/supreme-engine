@@ -1322,3 +1322,48 @@ def test_download_errors(client, fake_ai, monkeypatch):
 
     other = user_with_profile(client, "b@example.com", "User B")
     assert client.get(f"/documents/{doc['id']}/download?format=docx", headers=other).status_code == 404
+
+
+# ---------- Newest-first jobs, contact email, partial profile updates ----------
+def test_cv_shows_chosen_jobs_newest_first():
+    draft = CVDraft(summary="S.", experience=[CVJobDraft(ref="job1", bullets=["Designed 30 social media graphics monthly"]),
+                                              CVJobDraft(ref="job2", bullets=["Resolved 20 tickets weekly in Zendesk"])],
+                    other_experience_refs=[], projects=[], skills=[], education_refs=[], certification_refs=[])
+    cv, _ = cv_document.build_cv(draft, FC_PROFILE)
+    # The model listed the 2021 job first; the current job (2023 - Present) comes first on the CV.
+    assert [(j.job_title, j.end) for j in cv.experience] == [("Support Intern", "Present"), ("Graphic Designer", "Jun 2022")]
+    assert cv.experience[0].bullets == ["Resolved 20 tickets weekly in Zendesk"]  # bullets stay with their job
+
+
+def test_contact_email_appears_on_cv_and_letter():
+    profile = {**FC_PROFILE, "email": "ada@example.com"}
+    cv, _ = cv_document.build_cv(CV_DRAFT, profile)
+    assert cv_document.contact_line(cv) == "ada@example.com | Lagos | ada04.github.io"
+    assert "ada@example.com" in render.cv_html(cv, "classic")
+    assert python_docx.Document(io.BytesIO(render.cv_docx(cv, "modern"))).paragraphs[1].text.startswith("ada@example.com")
+    # The fact-checker knows the email is the candidate's, and its digits never count as invented numbers.
+    md = cv_document.render_markdown(cv)
+    sources = factcheck.build_sources(profile, "Graphic Designer", None, None, 3.0)
+    assert "ada@example.com" in sources[0].text
+    assert factcheck.code_checks(md, profile, sources, "Graphic Designer", 3.0) == []
+
+
+def test_profile_update_changes_only_the_fields_sent(client):
+    h = signup_and_login(client)
+    client.put("/profile", json={"full_name": "Ada Obi", "headline": "Designer", "phone": "+234 800 000 0000"}, headers=h)
+    r = client.put("/profile", json={"full_name": "Ada Obi", "email": "ada@example.com"}, headers=h)
+    assert r.status_code == 200
+    profile = r.json()
+    assert (profile["email"], profile["headline"], profile["phone"]) == ("ada@example.com", "Designer", "+234 800 000 0000")
+    assert client.put("/profile", json={"full_name": "Ada Obi", "email": "not-an-email"}, headers=h).status_code == 422
+    # Clearing a field still works by sending it as null.
+    assert client.put("/profile", json={"full_name": "Ada Obi", "headline": None}, headers=h).json()["headline"] is None
+
+
+def test_cover_letter_download_includes_contact_email(client, fake_letter):
+    h = user_with_profile(client, name="Ada Obi")
+    client.put("/profile", json={"full_name": "Ada Obi", "email": "ada@example.com"}, headers=h)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    doc = client.post(f"/applications/{app_id}/generate-cover-letter", headers=h).json()
+    r = client.get(f"/documents/{doc['id']}/download?format=docx", headers=h)
+    assert python_docx.Document(io.BytesIO(r.content)).paragraphs[1].text == "ada@example.com"

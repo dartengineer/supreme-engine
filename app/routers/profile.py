@@ -69,7 +69,8 @@ def create_or_update_profile(data: ProfileBase, user: User = Depends(get_current
         profile = Profile(user_id=user.id, **data.model_dump())
         db.add(profile)
     else:
-        for field, value in data.model_dump().items():
+        # Only the fields you send change, so adding e.g. an email doesn't wipe the rest of the profile.
+        for field, value in data.model_dump(exclude_unset=True).items():
             setattr(profile, field, value)
     db.commit()
     db.refresh(profile)

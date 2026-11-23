@@ -31,6 +31,7 @@ class Token(BaseModel):
 class ProfileBase(BaseModel):
     full_name: str
     headline: str | None = None
+    email: EmailStr | None = None  # shown on CVs and cover letters (can differ from your login email)
     phone: str | None = None
     location: str | None = None
     linkedin_url: str | None = None
@@ -192,6 +193,7 @@ class CVDraft(BaseModel):
 
 
 class CVContact(BaseModel):
+    email: str | None = None
     phone: str | None = None
     location: str | None = None
     linkedin_url: str | None = None
