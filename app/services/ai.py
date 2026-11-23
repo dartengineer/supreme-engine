@@ -69,10 +69,9 @@ mean a particular piece of work was made in Canva).
 3a. No invented detail or colour: don't describe what customers or situations were like, how often something \
 happened ("daily", "every"), what a certificate covers, or what a role "taught" or "showed" the candidate. \
 Restate the profile's facts and connect them to the job's needs; that is enough.
-4. Never claim a requirement the profile doesn't show. Gaps: mention ONLY the items in <gaps_to_mention>, \
-in a single short sentence after the strengths, saying the candidate is keen to learn them, without \
-apologising. Don't mention any other missing requirement, industry or tool. If <gaps_to_mention> is empty, \
-don't mention gaps at all.
+4. Never claim a requirement the profile doesn't show. Gaps: if a <gap_sentence> is given, include it word for \
+word, once, after the strengths, and write no other sentence about what the candidate lacks, hasn't done or \
+is still learning. If there is no gap sentence, don't mention gaps at all.
 5. Before calling something a gap, check the whole profile, including skills and certifications listed as \
 "other". The profile may show only the parts most relevant to this job, so something you can't see is not \
 proof the candidate lacks it. If unsure, say nothing about it.
@@ -122,7 +121,8 @@ equivalent experience anywhere (experience bullets, skills, projects, certificat
 certification, regulation, degree subject or industry) is absent from the profile. Related general experience \
 doesn't make a named tool or industry present, but don't list soft skills the profile reasonably supports.
 - Don't list practical conditions the profile can't show (e.g. "reliable internet connection").
-- Use short wording taken from the requirement. Order each list from most to least important for this job."""
+- Refer to each missing requirement by its number in its list. Give it a short label that reads naturally \
+after "I have not yet worked with" (e.g. "Windows Server", "KYC and AML procedures", "banking customers")."""
 
 CLAIMS_SYSTEM_PROMPT = """You split a generated CV or cover letter into individual claims for fact-checking.
 
@@ -273,26 +273,21 @@ MAX_GAPS_TO_MENTION = 2
 
 
 def assess_gaps(full_profile_json: str, requirements: JobRequirements) -> GapAssessment:
-    """Asks the model (with structured output) which requirements the whole profile shows no evidence for."""
+    """Asks the model (with structured output) which requirements the whole profile shows no evidence for.
+
+    The model decides *what* is missing (embedding distance couldn't: on 38 labelled requirements its best
+    threshold got 87% right and called real experience "missing", against 95% for this check). Everything
+    else (which gaps to mention, the wording) is decided in code, and the result is saved per application.
+    """
+    def numbered(items: list[str]) -> str:
+        return "\n".join(f"{i}. {item}" for i, item in enumerate(items, 1)) or "(none)"
+
     user_message = (
         f"<profile>\n{full_profile_json}\n</profile>\n\n"
-        f"<requirements>\n{requirements.model_dump_json(indent=2)}\n</requirements>"
+        f"<required>\n{numbered(requirements.required_skills)}\n</required>\n\n"
+        f"<nice_to_have>\n{numbered(requirements.nice_to_have_skills)}\n</nice_to_have>"
     )
-    with _friendly_errors():
-        try:
-            response = _client().messages.parse(
-                model=settings.ai_model,
-                max_tokens=16000,
-                system=GAP_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
-                output_format=GapAssessment,
-            )
-        except ValidationError:
-            raise AIError("The AI returned the gap check in an unexpected shape. Try again.")
-    _check_finished(response)
-    if response.parsed_output is None:
-        raise AIError("The AI didn't return a gap check. Try again.")
-    return response.parsed_output
+    return _parse(GAP_SYSTEM_PROMPT, user_message, GapAssessment, "gap check")
 
 
 def _parse(system: str, user_message: str, output_format, what: str):
@@ -332,11 +327,47 @@ def judge_claim(claim: str, kind: str, source_text: str) -> ClaimVerdict:
                   ClaimVerdict, "verdict")
 
 
-def choose_gaps(assessment: GapAssessment) -> list[str]:
-    """At most two required gaps; if nothing required is missing, at most one nice-to-have."""
-    if assessment.missing_required:
-        return assessment.missing_required[:MAX_GAPS_TO_MENTION]
-    return assessment.missing_nice_to_have[:1]
+def choose_gaps(assessment: GapAssessment, requirements: JobRequirements) -> list[str]:
+    """At most two missing required items, in the order the ad lists them; if nothing required is missing, at
+    most one nice-to-have. Ad order (not the model's ranking) keeps the choice the same on every run."""
+    def valid(items: list, count: int) -> list:
+        seen, out = set(), []
+        for m in sorted(items, key=lambda m: m.index):
+            if 1 <= m.index <= count and m.index not in seen and m.label.strip():
+                seen.add(m.index)
+                out.append(m.label.strip())
+        return out
+
+    required = valid(assessment.missing_required, len(requirements.required_skills))
+    if required:
+        return required[:MAX_GAPS_TO_MENTION]
+    return valid(assessment.missing_nice_to_have, len(requirements.nice_to_have_skills))[:1]
+
+
+def gap_sentence(gaps: list[str]) -> str | None:
+    """The only wording a letter may use for gaps, so it can't drift into "still building my knowledge of X"."""
+    if not gaps:
+        return None
+    return f"I have not yet worked with {' or '.join(gaps)}, but I am keen to learn."
+
+
+def ensure_sentence(letter: str, sentence: str) -> str:
+    """If the model left out the required sentence, adds it to the end of the second-to-last body paragraph."""
+    if sentence in letter:
+        return letter
+    lines = letter.strip().split("\n")
+    sign_off = next((i for i, l in enumerate(lines) if re.match(r"\s*(kind regards|best regards|regards|sincerely)\b",
+                                                                 l, re.I)), len(lines))
+    start = 1 if lines and lines[0].lower().startswith("dear") else 0
+    paragraphs = [i for i in range(start, sign_off) if lines[i].strip() and (i == start or not lines[i - 1].strip())]
+    if not paragraphs:
+        return letter
+    target = paragraphs[-2] if len(paragraphs) >= 2 else paragraphs[-1]
+    end = target
+    while end + 1 < sign_off and lines[end + 1].strip():
+        end += 1
+    lines[end] = lines[end].rstrip() + " " + sentence
+    return "\n".join(lines)
 
 
 def letter_greeting(company: str | None) -> str:
@@ -367,12 +398,12 @@ def generate_cover_letter(context, company: str | None, motivation_notes: str | 
                           feedback: str | None = None) -> str:
     """Returns a plain-text cover letter for the job, built from the same context as the CV.
 
-    `context` is a GenerationContext. Motivation comes only from `motivation_notes`; without notes the letter
-    keeps its motivation general. Three things are enforced in code because the model doesn't follow them
-    reliably: which gaps may be mentioned (at most two, chosen by assess_gaps), the length (one rewrite if
-    it's outside 250-350 words), and the greeting.
+    `context` is a GenerationContext; context.gaps holds the (saved) gaps to mention. Motivation comes only from
+    `motivation_notes`; without notes the letter keeps its motivation general. Enforced in code because the
+    model doesn't follow them reliably: the gap sentence (fixed wording, always present when there are gaps),
+    the length (one rewrite if it's outside 250-350 words), and the greeting.
     """
-    gaps = choose_gaps(assess_gaps(context.full_profile_json, context.requirements)) if context.requirements else []
+    sentence = gap_sentence(getattr(context, "gaps", []) or [])
 
     parts = [
         f"<profile>\n{context.profile_json}\n</profile>",
@@ -381,7 +412,8 @@ def generate_cover_letter(context, company: str | None, motivation_notes: str | 
     ]
     if context.requirements is not None:
         parts.append(f"<requirements>\n{context.requirements.model_dump_json(indent=2)}\n</requirements>")
-    parts.append(f"<gaps_to_mention>\n{chr(10).join(gaps) if gaps else '(none)'}\n</gaps_to_mention>")
+    parts.append(f"<gap_sentence>{sentence}</gap_sentence>" if sentence
+                 else "<gap_sentence>(none: don't mention gaps)</gap_sentence>")
     parts.append(
         f"<motivation_notes>\n{motivation_notes}\n</motivation_notes>" if motivation_notes
         else "<motivation_notes>(none given: keep the motivation general, as the rules say)</motivation_notes>"
@@ -406,7 +438,8 @@ def generate_cover_letter(context, company: str | None, motivation_notes: str | 
         ]
         letter = _complete_messages(COVER_LETTER_SYSTEM_PROMPT, messages, "cover letter")
 
-    return set_greeting(letter, company)
+    letter = set_greeting(letter, company)
+    return ensure_sentence(letter, sentence) if sentence else letter
 
 
 def _complete(system: str, user_message: str, what: str) -> str:

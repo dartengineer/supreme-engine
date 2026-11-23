@@ -155,12 +155,18 @@ class ClaimVerdict(BaseModel):
     reason: str = Field(description="One sentence: what in the claim is or isn't backed by the source.")
 
 
+class MissingRequirement(BaseModel):
+    index: int = Field(description="The requirement's number in the list it came from (starting at 1).")
+    label: str = Field(description="A short noun phrase that reads naturally after 'I have not yet worked with', "
+                                   "e.g. 'Windows Server', 'KYC and AML procedures', 'banking customers'.")
+
+
 class GapAssessment(BaseModel):
     """Requirements the candidate's profile shows no evidence for (used to keep cover letters honest)."""
-    missing_required: list[str] = Field(
-        description="Required skills/qualifications the profile shows no evidence for, most important first.")
-    missing_nice_to_have: list[str] = Field(
-        description="Nice-to-have skills the profile shows no evidence for, most important first.")
+    missing_required: list[MissingRequirement] = Field(
+        description="Required skills/qualifications the profile shows no evidence for.")
+    missing_nice_to_have: list[MissingRequirement] = Field(
+        description="Nice-to-have skills the profile shows no evidence for.")
 
 
 class MatchOut(BaseModel):

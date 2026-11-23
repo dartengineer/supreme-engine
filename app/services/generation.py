@@ -3,15 +3,16 @@
 load profile -> requirements -> retrieve chunks -> years of experience, so every document type sees
 exactly the same facts about the candidate.
 """
+import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 from sqlalchemy.orm import Session
 
 from app.models import JobApplication, Profile
-from app.schemas import FullProfileOut, JobRequirements
-from app.services import retrieval
+from app.schemas import FullProfileOut, GapAssessment, JobRequirements
+from app.services import ai, retrieval
 
 
 @dataclass
@@ -25,6 +26,7 @@ class GenerationContext:
     years_of_experience: float
     profile_json: str  # what the AI sees about the candidate when writing
     full_profile_json: str  # the whole profile, for checks that must see everything (e.g. which requirements are missing)
+    gaps: list[str] = field(default_factory=list)  # missing requirements a cover letter may mention (see letter_gaps)
 
 
 def years_of_experience(experiences, today: date | None = None) -> float:
@@ -73,3 +75,33 @@ def build_generation_context(db: Session, profile: Profile, application: JobAppl
         profile_json=json.dumps(data, ensure_ascii=False),
         full_profile_json=json.dumps(full, ensure_ascii=False),
     )
+
+
+def _fingerprint(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def letter_gaps(db: Session, application: JobApplication, context: GenerationContext) -> list[str]:
+    """The gaps a cover letter may mention, from the saved gap check when it's still valid.
+
+    The gap check (one AI call) runs once per application and is saved, so every letter mentions the same
+    gaps. It reruns only when the profile or the requirements have changed since it was saved.
+    """
+    if context.requirements is None:
+        return []
+    profile_data = json.loads(context.full_profile_json)
+    profile_data.pop("total_experience", None)  # changes every month on its own; not a profile edit
+    for value in profile_data.values():  # list order from the database isn't fixed; sort so the same profile
+        if isinstance(value, list):      # always gives the same fingerprint
+            value.sort(key=lambda item: item.get("id", 0) if isinstance(item, dict) else 0)
+    key = {"profile": _fingerprint(json.dumps(profile_data, sort_keys=True)),
+           "requirements": _fingerprint(context.requirements.model_dump_json())}
+
+    saved = application.gap_check or {}
+    if saved.get("key") == key:
+        assessment = GapAssessment.model_validate(saved["assessment"])
+    else:
+        assessment = ai.assess_gaps(context.full_profile_json, context.requirements)
+        application.gap_check = {"key": key, "assessment": assessment.model_dump()}
+        db.commit()
+    return ai.choose_gaps(assessment, context.requirements)

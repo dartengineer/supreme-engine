@@ -419,7 +419,7 @@ def test_analyze_failure_returns_502_and_saves_nothing(client, monkeypatch):
 from sqlalchemy import select  # noqa: E402
 
 from app.database import SessionLocal  # noqa: E402
-from app.models import GeneratedDocument, ProfileChunk  # noqa: E402
+from app.models import GeneratedDocument, JobApplication, ProfileChunk  # noqa: E402
 
 
 def chunk_texts(source_type=None):
@@ -532,7 +532,9 @@ from app.services.generation import years_of_experience  # noqa: E402
 
 @pytest.fixture()
 def fake_letter(monkeypatch):
-    """Replaces generate_cover_letter with a fake that records what it was given."""
+    """Replaces generate_cover_letter with a fake that records what it was given. The gap check is faked too
+    (no gaps); tests about gaps replace ai.assess_gaps themselves."""
+    from app.schemas import GapAssessment
     calls = []
 
     def fake_generate_cover_letter(context, company, motivation_notes, feedback=None):
@@ -541,6 +543,7 @@ def fake_letter(monkeypatch):
         return "Dear Acme Team,\n\nTest letter.\n\nKind regards,\nAda Obi"
 
     monkeypatch.setattr(ai, "generate_cover_letter", fake_generate_cover_letter)
+    monkeypatch.setattr(ai, "assess_gaps", lambda *a: GapAssessment(missing_required=[], missing_nice_to_have=[]))
     return calls
 
 
@@ -659,13 +662,13 @@ def test_unselected_skills_are_still_sent_as_other(client, fake_letter, fake_ext
 
 
 # ---------- Cover letter rules enforced in code ----------
-from app.schemas import GapAssessment  # noqa: E402
+from app.schemas import GapAssessment, MissingRequirement as Missing  # noqa: E402
 
 
-def _context(requirements=FAKE_REQUIREMENTS):
+def _context(requirements=FAKE_REQUIREMENTS, gaps=()):
     return SimpleNamespace(profile_json='{"full_name": "Ada Obi"}', full_profile_json='{"full_name": "Ada Obi"}',
                            job_title="Graphic Designer", job_description="Design brand assets.",
-                           requirements=requirements)
+                           requirements=requirements, gaps=list(gaps))
 
 
 def _letter(words: int, greeting="Dear Sir,"):
@@ -676,48 +679,93 @@ def test_letter_word_count_ignores_greeting_and_sign_off():
     assert ai.letter_body_word_count(_letter(260)) == 260
 
 
-def test_choose_gaps_keeps_at_most_two_required_or_one_nice_to_have():
-    assert ai.choose_gaps(GapAssessment(missing_required=["KYC", "AML", "Salesforce"], missing_nice_to_have=["Trello"])) == ["KYC", "AML"]
-    assert ai.choose_gaps(GapAssessment(missing_required=[], missing_nice_to_have=["Trello", "Asana"])) == ["Trello"]
-    assert ai.choose_gaps(GapAssessment(missing_required=[], missing_nice_to_have=[])) == []
+def test_choose_gaps_follows_ad_order_not_the_models_ranking():
+    reqs = JobRequirements(required_skills=["Banking experience", "KYC and AML", "Salesforce"],
+                           nice_to_have_skills=["Trello", "Asana"], keywords=[], seniority="", key_responsibilities=[])
+    # The model lists them in a different order (and once with a bad index): code sorts by position in the ad.
+    assessment = GapAssessment(missing_required=[Missing(index=3, label="Salesforce"), Missing(index=2, label="KYC and AML procedures"),
+                                                 Missing(index=9, label="bogus"), Missing(index=1, label="banking customers")],
+                               missing_nice_to_have=[Missing(index=1, label="Trello")])
+    assert ai.choose_gaps(assessment, reqs) == ["banking customers", "KYC and AML procedures"]
+    only_nice = GapAssessment(missing_required=[], missing_nice_to_have=[Missing(index=2, label="Asana"), Missing(index=1, label="Trello")])
+    assert ai.choose_gaps(only_nice, reqs) == ["Trello"]
+    assert ai.choose_gaps(GapAssessment(missing_required=[], missing_nice_to_have=[]), reqs) == []
 
 
-def test_cover_letter_enforces_gaps_length_and_greeting(monkeypatch):
+def test_gap_sentence_uses_fixed_wording():
+    assert ai.gap_sentence(["Windows Server"]) == "I have not yet worked with Windows Server, but I am keen to learn."
+    assert ai.gap_sentence(["KYC and AML procedures", "banking customers"]) == \
+        "I have not yet worked with KYC and AML procedures or banking customers, but I am keen to learn."
+    assert ai.gap_sentence([]) is None
+
+
+def test_ensure_sentence_adds_a_missing_gap_sentence():
+    letter = "Dear X Team,\n\nFirst paragraph.\n\nSecond paragraph.\n\nClosing paragraph.\n\nKind regards,\nAda Obi"
+    fixed = ai.ensure_sentence(letter, "I have not yet worked with Trello, but I am keen to learn.")
+    assert "Second paragraph. I have not yet worked with Trello, but I am keen to learn." in fixed
+    assert ai.ensure_sentence(fixed, "I have not yet worked with Trello, but I am keen to learn.") == fixed  # no duplicate
+
+
+def test_cover_letter_enforces_gap_sentence_length_and_greeting(monkeypatch):
     sent = []
-    replies = iter([_letter(200), _letter(300)])  # too short first, fine after one rewrite
+    replies = iter([_letter(200), _letter(300)])  # too short first, fine after one rewrite; neither has the gap sentence
 
     def fake_complete_messages(system, messages, what):
         sent.append([dict(m) for m in messages])
         return next(replies)
 
-    monkeypatch.setattr(ai, "assess_gaps", lambda profile, reqs: GapAssessment(
-        missing_required=["KYC", "AML", "Salesforce"], missing_nice_to_have=["Trello"]))
     monkeypatch.setattr(ai, "_complete_messages", fake_complete_messages)
+    letter = ai.generate_cover_letter(_context(gaps=["KYC and AML procedures", "banking customers"]), "FinEdge", None)
 
-    letter = ai.generate_cover_letter(_context(), "FinEdge", None)
-
+    sentence = "I have not yet worked with KYC and AML procedures or banking customers, but I am keen to learn."
     first_prompt = sent[0][0]["content"]
-    assert "<gaps_to_mention>\nKYC\nAML\n</gaps_to_mention>" in first_prompt  # only the top two
-    assert "Salesforce" not in first_prompt.split("<gaps_to_mention>")[1].split("</gaps_to_mention>")[0]
+    assert f"<gap_sentence>{sentence}</gap_sentence>" in first_prompt
     assert "<greeting>Dear FinEdge Team,</greeting>" in first_prompt
     assert "(none given" in first_prompt  # no motivation notes
 
     assert len(sent) == 2  # exactly one rewrite
     assert "200 words" in sent[1][-1]["content"]
     assert letter.splitlines()[0] == "Dear FinEdge Team,"  # model's "Dear Sir," replaced
-    assert ai.letter_body_word_count(letter) == 300
+    assert letter.count(sentence) == 1  # the model left it out, so code added it
 
 
-def test_cover_letter_without_requirements_skips_gap_check_and_rewrite(monkeypatch):
+def test_cover_letter_without_gaps_mentions_none(monkeypatch):
     calls = []
-    monkeypatch.setattr(ai, "assess_gaps", lambda *a: (_ for _ in ()).throw(AssertionError("should not run")))
     monkeypatch.setattr(ai, "_complete_messages", lambda s, m, w: calls.append(m) or _letter(300, "Dear Team,"))
 
     letter = ai.generate_cover_letter(_context(requirements=None), None, "I use their app.")
     assert len(calls) == 1
-    assert "<gaps_to_mention>\n(none)\n</gaps_to_mention>" in calls[0][0]["content"]
+    assert "<gap_sentence>(none: don't mention gaps)</gap_sentence>" in calls[0][0]["content"]
     assert "I use their app." in calls[0][0]["content"]
+    assert "have not yet worked" not in letter
     assert letter.splitlines()[0] == "Dear Hiring Manager,"  # no company known
+
+
+def test_gap_check_is_saved_and_only_rerun_when_something_changes(client, fake_letter, fake_extract, monkeypatch):
+    checks = []
+
+    def fake_assess(profile_json, requirements):
+        checks.append(profile_json)
+        return GapAssessment(missing_required=[Missing(index=1, label="Canva")], missing_nice_to_have=[])
+
+    monkeypatch.setattr(ai, "assess_gaps", fake_assess)
+    h = user_with_profile(client)
+    app_id = client.post("/applications", json=APPLICATION, headers=h).json()["id"]
+    client.post(f"/applications/{app_id}/analyze", headers=h)
+
+    for _ in range(3):
+        client.post(f"/applications/{app_id}/generate-cover-letter", headers=h)
+    assert len(checks) == 1  # three letters, one gap check
+    assert [c["context"].gaps for c in fake_letter] == [["Canva"]] * 3  # the same gaps every time
+
+    client.post("/profile/skills", json={"name": "Photoshop"}, headers=h)  # profile changed
+    client.post(f"/applications/{app_id}/generate-cover-letter", headers=h)
+    assert len(checks) == 2
+
+    client.patch(f"/applications/{app_id}", json={"job_description": "A different ad."}, headers=h)
+    assert client.get(f"/applications/{app_id}", headers=h).status_code == 200
+    with SessionLocal() as db:
+        assert db.get(JobApplication, app_id).gap_check is None  # new ad: old gap check dropped
 
 
 # ---------- History: status, documents, final versions (v5) ----------

@@ -127,6 +127,7 @@ def update_application(app_id: int, data: JobApplicationUpdate, user: User = Dep
         setattr(application, field, value)
     if any(f in changes for f in ("job_title", "job_description")):
         application.requirements = None
+        application.gap_check = None
     db.commit()
     db.refresh(application)
     return application
@@ -191,6 +192,10 @@ def generate_cover_letter(app_id: int, user: User = Depends(get_current_user), d
     """
     application = _get_own_application(app_id, user, db)
     context = generation.build_generation_context(db, _require_profile(user), application)
+    try:
+        context.gaps = generation.letter_gaps(db, application, context)  # saved per application
+    except ai.AIError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
     def write(feedback):
         extra = {"feedback": feedback} if feedback else {}
