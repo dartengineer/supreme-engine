@@ -3,7 +3,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # extra="ignore": .env also holds settings for other tools (e.g. POSTGRES_PASSWORD for Docker Compose).
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "AI CV Generator"
     database_url: str = "postgresql+psycopg://postgres:password@localhost:5432/cv_generator"

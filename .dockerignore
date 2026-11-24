@@ -1,0 +1,15 @@
+# Keep secrets, local environments and personal output out of the image.
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+.git/
+generated_cvs/
+tests/eval_cases/last_run.json
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.vscode/
+.idea/
+pdf_renderer/

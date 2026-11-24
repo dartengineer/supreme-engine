@@ -1,0 +1,61 @@
+# The whole app: API + PostgreSQL with pgvector + PDF renderer.
+#
+#   cp .env.example .env      # then fill in POSTGRES_PASSWORD, SECRET_KEY (and ANTHROPIC_API_KEY for AI features)
+#   docker compose up --build # app at http://localhost:8000/docs
+#   docker compose run --rm api pytest -q -p no:cacheprovider   # run the tests inside the container
+#
+# Settings come from .env as environment variables: no secrets are built into any image. Only the API is
+# published, and only on this machine (127.0.0.1). The database and PDF renderer are reachable only by the
+# other containers, by service name (db, pdf).
+name: cv-generator
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: cv_generator
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/db-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cv_generator"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  pdf:
+    build: ./pdf_renderer
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@db:5432/cv_generator
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-claude-haiku-5-5}
+      PDF_RENDERER_URL: http://pdf:5001
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      pdf:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
